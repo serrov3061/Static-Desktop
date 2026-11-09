@@ -28,4 +28,13 @@ void FillNftMenu(
 	const NftItem &item,
 	Fn<void()> moved);
 
+// «Передать» of a .ton domain NFT: «Передать пользователю» (a StaticGram
+// user) and «Отправить на адрес» (a wallet address or name.ton, resolved
+// with tondns.resolve), both through gramwallet.transferNft.
+void FillNftTransferMenu(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<Window::SessionController*> controller,
+	const NftItem &item,
+	Fn<void()> moved);
+
 } // namespace StaticGram::Money

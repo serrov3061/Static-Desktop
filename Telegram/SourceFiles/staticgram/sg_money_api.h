@@ -144,6 +144,10 @@ void SendToAddress(
 [[nodiscard]] bool LooksLikeAddress(const QString &text);
 // "name.ton" (any case).
 [[nodiscard]] bool LooksLikeTonDomain(const QString &text);
+// Android SGChainWallet.explorerUrl: our own chain explorer.
+[[nodiscard]] inline QString ExplorerUrl(const QString &address) {
+	return u"https://fragment.staticgram.top/explorer/"_q + address;
+}
 // "@name", "name", "t.me/name": the username without the "@", else empty.
 [[nodiscard]] QString ParseUsername(const QString &text);
 

@@ -2328,6 +2328,8 @@ PRIVATE
     staticgram/sg_settings_boxes.cpp
     staticgram/sg_settings_boxes.h
     # p-misc
+    staticgram/sg_domain_card.cpp
+    staticgram/sg_domain_card.h
     staticgram/sg_domains.cpp
     staticgram/sg_domains.h
     staticgram/sg_proxies.cpp

@@ -9631,6 +9631,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_dns_for_sale" = "For sale";
 "lng_sg_dns_for_sale_empty" = "Nothing is for sale yet";
 "lng_sg_dns_for_sale_more" = "Show more";
+"lng_sg_dns_sort_date" = "New";
+"lng_sg_dns_sort_cheap" = "Cheaper";
+"lng_sg_dns_sort_expensive" = "Pricier";
+"lng_sg_dns_sort_name" = "By name";
+"lng_sg_nft_explorer" = "Explorer";
 "lng_sg_dns_error_unknown" = "Something went wrong, try again";
 "lng_sg_dns_error_invalid" = "1–32 Latin letters, digits or _ are allowed";
 "lng_sg_dns_error_taken" = "This domain is taken";

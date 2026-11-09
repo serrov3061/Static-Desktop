@@ -7,7 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "staticgram/sg_domains.h"
 
 #include "staticgram/sg_box_parts.h"
+#include "staticgram/sg_domain_card.h"
 #include "staticgram/sg_money_api.h"
+#include "staticgram/sg_money_nft.h"
 #include "apiwrap.h"
 #include "base/timer.h"
 #include "base/unixtime.h"
@@ -18,14 +20,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "mokagram/ui/mokagram_box_parts.h"
 #include "settings/settings_common.h"
+#include "ui/basic_click_handlers.h"
+#include "ui/controls/sub_tabs.h"
 #include "ui/layers/generic_box.h"
 #include "ui/layers/show.h"
+#include "ui/painter.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
+#include "ui/widgets/popup_menu.h"
+#include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+#include "styles/style_info.h" // defaultSubTabs.
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
@@ -34,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QRegularExpression>
 #include <QtGui/QClipboard>
+#include <QtGui/QCursor>
 #include <QtGui/QGuiApplication>
 
 namespace StaticGram::Domains {
@@ -44,7 +53,7 @@ using namespace StaticGram::BoxParts;
 constexpr auto kCheckDelay = crl::time(400);
 constexpr auto kMintPollInterval = crl::time(3000);
 constexpr auto kMintPollMax = crl::time(3 * 60 * 1000);
-constexpr auto kListingsPage = 20;
+constexpr auto kListingsPage = 30;
 constexpr auto kNanos = Money::kNanosInOne;
 
 const auto kInfoMargins = QMargins(16, 4, 16, 8);
@@ -277,8 +286,12 @@ public:
 		Fn<void(QString)> fail);
 	void loadListings(
 		int offset,
+		const QString &sort,
 		Fn<void(std::vector<Listing>, int)> done,
 		Fn<void()> fail);
+	// The domain NFT was sent away (gramwallet.transferNft): the chain
+	// move is delayed, getMyDomains is polled until it leaves the list.
+	void transferred(const QString &name);
 
 private:
 	mtpRequestId checkPlain(
@@ -297,6 +310,7 @@ private:
 	base::flat_map<QString, Listing> _myListings;
 	base::flat_set<QString> _expected; // Bought listings not in _my yet.
 	base::flat_set<QString> _minting; // Last seen not minted.
+	base::flat_set<QString> _leaving; // Transferred, still in _my.
 	std::shared_ptr<Ui::Show> _show;
 	base::Timer _mintTimer;
 	crl::time _mintPollStarted = 0;
@@ -346,9 +360,17 @@ void Controller::loadMy(bool poll) {
 		_myLoaded = true;
 		_myFailed = false;
 		checkMintedTransitions();
+		for (auto i = begin(_leaving); i != end(_leaving);) {
+			if (findMine(*i)) {
+				++i;
+			} else {
+				i = _leaving.erase(i);
+			}
+		}
 		if (poll && mintPollExpired()) {
 			_mintPollStarted = 0;
 			_expected.clear();
+			_leaving.clear();
 		} else {
 			pollMints();
 		}
@@ -390,6 +412,7 @@ void Controller::checkMintedTransitions() {
 
 bool Controller::hasPendingMint() const {
 	return !_expected.empty()
+		|| !_leaving.empty()
 		|| ranges::any_of(_my, [](const Domain &d) { return !d.minted; });
 }
 
@@ -645,12 +668,13 @@ void Controller::cancelSale(
 
 void Controller::loadListings(
 		int offset,
+		const QString &sort,
 		Fn<void(std::vector<Listing>, int)> done,
 		Fn<void()> fail) {
 	_session->api().request(MTPtondns_GetListings(
 		MTP_int(offset),
 		MTP_int(kListingsPage),
-		MTP_string(u"date"_q)
+		MTP_string(sort)
 	)).done(crl::guard(this, [=](const MTPtondns_Listings &result) {
 		const auto &data = result.data();
 		applyListingsMeta(data);
@@ -662,6 +686,15 @@ void Controller::loadListings(
 	})).fail([=] {
 		fail();
 	}).send();
+}
+
+void Controller::transferred(const QString &name) {
+	const auto full = FullName(name);
+	_myListings.remove(full);
+	_leaving.emplace(full);
+	_mintPollStarted = 0;
+	_updates.fire({});
+	loadMy(true);
 }
 
 [[nodiscard]] not_null<Controller*> Instance(
@@ -719,6 +752,129 @@ void AddText(
 		margins);
 }
 
+// A centered domain card above a box body (Android: the 140 dp card of
+// the domain sheets, 96 dp in the sale sheet, the 124 dp live hero card).
+not_null<CardView*> AddHeroCard(
+		not_null<Ui::VerticalLayout*> container,
+		const QString &name,
+		int size,
+		float64 radiusFraction,
+		bool server,
+		QMargins margins = QMargins(0, 8, 0, 12)) {
+	const auto side = style::ConvertScale(size);
+	const auto row = container->add(
+		object_ptr<Ui::FixedHeightWidget>(container, side),
+		margins);
+	const auto card = Ui::CreateChild<CardView>(
+		row,
+		name,
+		radiusFraction,
+		server);
+	card->resize(side, side);
+	row->widthValue() | rpl::on_next([=](int width) {
+		card->moveToLeft((width - side) / 2, 0);
+	}, card->lifetime());
+	return card;
+}
+
+// A row of «Мои домены» / «Продаются» (Android createDomainRow and
+// createListingRow): the card thumbnail, the name, a gray line under it and
+// an optional value on the right.
+class DomainRow final : public Ui::RippleButton {
+public:
+	struct Descriptor {
+		QString name;
+		bool server = false;
+		QString subtitle;
+		QString right;
+		bool accentSubtitle = false;
+	};
+	DomainRow(QWidget *parent, Descriptor descriptor);
+
+private:
+	void paintEvent(QPaintEvent *e) override;
+	int resizeGetHeight(int newWidth) override;
+
+	const Descriptor _descriptor;
+	const not_null<CardView*> _card;
+
+};
+
+constexpr auto kRowHeight = 56;
+constexpr auto kRowThumb = 40;
+constexpr auto kRowSkip = 16;
+constexpr auto kRowTextLeft = kRowSkip + kRowThumb + 12;
+
+DomainRow::DomainRow(QWidget *parent, Descriptor descriptor)
+: RippleButton(parent, st::defaultRippleAnimation)
+, _descriptor(std::move(descriptor))
+, _card(Ui::CreateChild<CardView>(
+		this,
+		_descriptor.name,
+		0.23,
+		_descriptor.server)) {
+	const auto thumb = style::ConvertScale(kRowThumb);
+	_card->resize(thumb, thumb);
+	_card->moveToLeft(
+		style::ConvertScale(kRowSkip),
+		(style::ConvertScale(kRowHeight) - thumb) / 2);
+	resize(width(), style::ConvertScale(kRowHeight));
+}
+
+int DomainRow::resizeGetHeight(int newWidth) {
+	return style::ConvertScale(kRowHeight);
+}
+
+void DomainRow::paintEvent(QPaintEvent *e) {
+	auto p = Painter(this);
+	if (isOver() || isDown()) {
+		p.fillRect(rect(), st::windowBgOver);
+	}
+	paintRipple(p, 0, 0);
+
+	const auto &titleFont = st::semiboldFont;
+	const auto &subtitleFont = st::normalFont;
+	const auto skip = style::ConvertScale(kRowSkip);
+	const auto left = style::ConvertScale(kRowTextLeft);
+	auto right = width() - skip;
+	if (!_descriptor.right.isEmpty()) {
+		const auto valueWidth = titleFont->width(_descriptor.right);
+		p.setFont(titleFont);
+		p.setPen(st::windowBoldFg);
+		p.drawTextLeft(
+			right - valueWidth,
+			(height() - titleFont->height) / 2,
+			width(),
+			_descriptor.right,
+			valueWidth);
+		right -= valueWidth + style::ConvertScale(12);
+	}
+	const auto available = std::max(right - left, 1);
+	const auto twoLines = !_descriptor.subtitle.isEmpty();
+	const auto gap = style::ConvertScale(2);
+	const auto textHeight = titleFont->height
+		+ (twoLines ? (gap + subtitleFont->height) : 0);
+	const auto top = (height() - textHeight) / 2;
+	p.setFont(titleFont);
+	p.setPen(st::windowBoldFg);
+	p.drawTextLeft(
+		left,
+		top,
+		width(),
+		titleFont->elided(_descriptor.name, available));
+	if (twoLines) {
+		p.setFont(subtitleFont);
+		p.setPen(_descriptor.accentSubtitle
+			? st::windowActiveTextFg
+			: st::windowSubTextFg);
+		p.drawTextLeft(
+			left,
+			top + titleFont->height + gap,
+			width(),
+			subtitleFont->elided(_descriptor.subtitle, available));
+	}
+}
+
 void ShowDomainBox(
 	not_null<Window::SessionController*> window,
 	not_null<Controller*> dns,
@@ -763,6 +919,7 @@ void BuyBox(
 	}, box->lifetime());
 
 	const auto container = box->verticalLayout();
+	AddHeroCard(container, name, 140, 0.11, false);
 	const auto body = container->add(
 		object_ptr<Ui::VerticalLayout>(container));
 
@@ -942,6 +1099,7 @@ void BuyListedBox(
 	}, box->lifetime());
 
 	const auto container = box->verticalLayout();
+	AddHeroCard(container, listing.name, 140, 16. / 140., true);
 	const auto card = AddCard(container, 0, 6);
 	AddInfoRow(
 		card,
@@ -1113,6 +1271,7 @@ void SaleBox(
 
 	const auto initial = dns->myListing(name);
 	const auto container = box->verticalLayout();
+	AddHeroCard(container, name, 96, 0.11, false);
 	const auto card = AddCard(container, 0, 6);
 	const auto field = card->add(
 		object_ptr<Ui::InputField>(
@@ -1259,8 +1418,24 @@ void DomainBox(
 	box->setWidth(st::boxWideWidth);
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 
-	const auto loading = box->lifetime().make_state<bool>(false);
+	struct State {
+		bool loading = false;
+		base::unique_qptr<Ui::PopupMenu> menu;
+	};
+	const auto state = box->lifetime().make_state<State>();
+	const auto loading = &state->loading;
 	const auto container = box->verticalLayout();
+	// The card: the server render once minted, the vector one meanwhile.
+	const auto mintedNow = [=] {
+		const auto mine = dns->findMine(name);
+		return mine && mine->minted;
+	};
+	const auto card = AddHeroCard(
+		container,
+		name,
+		140,
+		16. / 140.,
+		mintedNow());
 	const auto body = container->add(
 		object_ptr<Ui::VerticalLayout>(container));
 
@@ -1294,9 +1469,48 @@ void DomainBox(
 			window->show(Box(SaleBox, dns, name));
 		}
 	};
+	// «Передать» (Android SGDomainSheet tile -> SGNftSheet.openTransfer):
+	// gramwallet.transferNft with the domain item address.
+	const auto transfer = [=] {
+		const auto mine = dns->findMine(name);
+		if (!mine) {
+			box->showToast(tr::lng_sg_dns_error_not_owner(tr::now));
+			return;
+		} else if (!mine->minted || mine->itemAddress.isEmpty()) {
+			box->showToast(tr::lng_sg_dns_transfer_minting(tr::now));
+			return;
+		}
+		const auto weakBox = base::make_weak(box);
+		const auto moved = crl::guard(dns.get(), [=] {
+			dns->transferred(name);
+			if (const auto strong = weakBox.get()) {
+				strong->closeBox();
+			}
+		});
+		state->menu = base::make_unique_q<Ui::PopupMenu>(
+			box,
+			st::popupMenuWithIcons);
+		Money::FillNftTransferMenu(
+			state->menu.get(),
+			window,
+			Money::NftItem{ .address = mine->itemAddress, .name = name },
+			moved);
+		state->menu->popup(QCursor::pos());
+	};
+	// «Эксплорер»: the item in our own chain explorer.
+	const auto explorer = [=] {
+		const auto mine = dns->findMine(name);
+		const auto address = mine ? mine->itemAddress : QString();
+		if (address.isEmpty()) {
+			box->showToast(tr::lng_sg_dns_transfer_minting(tr::now));
+			return;
+		}
+		UrlClickHandler::Open(Money::ExplorerUrl(address));
+	};
 
 	const auto fill = [=] {
 		body->clear();
+		card->setServer(mintedNow());
 		const auto mine = dns->findMine(name);
 		if (!mine) {
 			AddText(
@@ -1362,6 +1576,12 @@ void DomainBox(
 			st::settingsButton,
 			{ domain.primary ? &st::menuIconUnpin : &st::menuIconPin }
 		)->setClickedCallback(togglePrimary);
+		Settings::AddButtonWithIcon(
+			actions,
+			tr::lng_sg_nft_transfer(),
+			st::settingsButton,
+			{ &st::menuIconForward }
+		)->setClickedCallback(transfer);
 		Settings::AddButtonWithLabel(
 			actions,
 			tr::lng_sg_dns_sell(),
@@ -1369,6 +1589,12 @@ void DomainBox(
 			st::settingsButton,
 			{ &st::menuIconTagSell }
 		)->setClickedCallback(sell);
+		Settings::AddButtonWithIcon(
+			actions,
+			tr::lng_sg_nft_explorer(),
+			st::settingsButton,
+			{ &st::menuIconLink }
+		)->setClickedCallback(explorer);
 		body->resizeToWidth(container->width());
 	};
 	fill();
@@ -1411,6 +1637,8 @@ void DomainsBox(
 		bool listingsLoading = false;
 		bool listingsLoaded = false;
 		bool listingsFailed = false;
+		QString sort = u"date"_q;
+		int listingsSeq = 0;
 		Fn<void()> fillSale;
 		Fn<void()> moreSale;
 		Fn<void()> reloadSale;
@@ -1418,6 +1646,14 @@ void DomainsBox(
 	const auto state = box->lifetime().make_state<State>();
 	const auto container = box->verticalLayout();
 
+	// The live card: what is typed, as the server will render it.
+	const auto hero = AddHeroCard(
+		container,
+		tr::lng_sg_dns_search_hint(tr::now),
+		124,
+		0.11,
+		false,
+		QMargins(0, 8, 0, 8));
 	AddCardNote(container, tr::lng_sg_dns_intro());
 
 	// The search: «[ name ] .ton», the state line and «Купить за».
@@ -1565,6 +1801,9 @@ void DomainsBox(
 			field->setText(filtered);
 			field->setCursorPosition(filtered.size());
 		}
+		hero->setName(filtered.isEmpty()
+			? tr::lng_sg_dns_search_hint(tr::now)
+			: filtered);
 		if (filtered == state->name) {
 			return;
 		}
@@ -1634,13 +1873,16 @@ void DomainsBox(
 		} else {
 			for (const auto &domain : list) {
 				const auto name = domain.name;
-				Settings::AddButtonWithLabel(
+				myList->add(object_ptr<DomainRow>(
 					myList,
-					rpl::single(name),
-					rpl::single(StatusText(dns, domain)),
-					st::settingsButton,
-					{ &st::menuIconLink }
-				)->setClickedCallback([=] {
+					DomainRow::Descriptor{
+						.name = name,
+						.server = domain.minted,
+						.subtitle = StatusText(dns, domain),
+						.accentSubtitle = (!domain.minted
+							|| dns->myListing(name) != nullptr),
+					}
+				))->setClickedCallback([=] {
 					ShowDomainBox(window, dns, name);
 				});
 			}
@@ -1651,6 +1893,25 @@ void DomainsBox(
 	// «Продаются»: the resale showcase.
 	const auto saleCard = AddCard(container);
 	AddCardTitle(saleCard, tr::lng_sg_dns_for_sale());
+	// Android SGDomainsActivity.SORTS: Новые · Дешевле · Дороже · По имени.
+	const auto sorts = saleCard->add(
+		object_ptr<Ui::SubTabs>(
+			saleCard,
+			st::defaultSubTabs,
+			Ui::SubTabsOptions{ .selected = state->sort },
+			std::vector<Ui::SubTabsTab>{
+				{ u"date"_q, tr::lng_sg_dns_sort_date(tr::now, tr::marked) },
+				{
+					u"price_asc"_q,
+					tr::lng_sg_dns_sort_cheap(tr::now, tr::marked),
+				},
+				{
+					u"price_desc"_q,
+					tr::lng_sg_dns_sort_expensive(tr::now, tr::marked),
+				},
+				{ u"name"_q, tr::lng_sg_dns_sort_name(tr::now, tr::marked) },
+			}),
+		QMargins(4, 2, 4, 6));
 	const auto saleList = saleCard->add(
 		object_ptr<Ui::VerticalLayout>(saleCard));
 	state->fillSale = [=] {
@@ -1667,13 +1928,15 @@ void DomainsBox(
 				kInfoMargins);
 		}
 		for (const auto &listing : state->listings) {
-			Settings::AddButtonWithLabel(
+			saleList->add(object_ptr<DomainRow>(
 				saleList,
-				rpl::single(listing.name),
-				rpl::single(GramText(listing.price)),
-				st::settingsButton,
-				{ &st::menuIconTagSell }
-			)->setClickedCallback([=] {
+				DomainRow::Descriptor{
+					.name = listing.name,
+					.server = true,
+					.subtitle = SellerName(session, listing.sellerId),
+					.right = GramText(listing.price),
+				}
+			))->setClickedCallback([=] {
 				if (listing.sellerId == session->userId()) {
 					ShowDomainBox(window, dns, listing.name);
 				} else {
@@ -1704,9 +1967,14 @@ void DomainsBox(
 			return;
 		}
 		state->listingsLoading = true;
-		dns->loadListings(int(state->listings.size()), crl::guard(box, [=](
+		const auto seq = state->listingsSeq;
+		const auto offset = int(state->listings.size());
+		dns->loadListings(offset, state->sort, crl::guard(box, [=](
 				std::vector<Listing> list,
 				int count) {
+			if (seq != state->listingsSeq) {
+				return;
+			}
 			state->listingsLoading = false;
 			for (auto &listing : list) {
 				state->listings.push_back(std::move(listing));
@@ -1714,6 +1982,9 @@ void DomainsBox(
 			state->listingsCount = count;
 			state->fillSale();
 		}), crl::guard(box, [=] {
+			if (seq != state->listingsSeq) {
+				return;
+			}
 			state->listingsLoading = false;
 			state->fillSale();
 		}));
@@ -1721,9 +1992,13 @@ void DomainsBox(
 	// Loads the first page again (after a purchase or on open).
 	state->reloadSale = [=] {
 		state->listingsLoading = true;
-		dns->loadListings(0, crl::guard(box, [=](
+		const auto seq = ++state->listingsSeq;
+		dns->loadListings(0, state->sort, crl::guard(box, [=](
 				std::vector<Listing> list,
 				int count) {
+			if (seq != state->listingsSeq) {
+				return;
+			}
 			state->listingsLoading = false;
 			state->listingsLoaded = true;
 			state->listingsFailed = false;
@@ -1731,11 +2006,22 @@ void DomainsBox(
 			state->listingsCount = count;
 			state->fillSale();
 		}), crl::guard(box, [=] {
+			if (seq != state->listingsSeq) {
+				return;
+			}
 			state->listingsLoading = false;
 			state->listingsFailed = !state->listingsLoaded;
 			state->fillSale();
 		}));
 	};
+	sorts->activated() | rpl::on_next([=](const QString &id) {
+		if (id == state->sort) {
+			return;
+		}
+		sorts->setActiveTab(id);
+		state->sort = id;
+		state->reloadSale();
+	}, sorts->lifetime());
 
 	bind();
 	fillMy();

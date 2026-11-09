@@ -340,4 +340,24 @@ void FillNftMenu(
 	}, &st::menuIconCopy);
 }
 
+void FillNftTransferMenu(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller,
+		const NftItem &item,
+		Fn<void()> moved) {
+	const auto weak = base::make_weak(controller);
+	menu->addAction(tr::lng_sg_nft_transfer_to_user(tr::now), [=] {
+		if (const auto strong = weak.get()) {
+			ChooseUser(strong, item, moved);
+		}
+	}, &st::menuIconForward);
+	menu->addAction(tr::lng_sg_nft_transfer_to_address(tr::now), [=] {
+		if (const auto strong = weak.get()) {
+			strong->show(
+				Box(TransferToAddressBox, strong, item, moved),
+				Ui::LayerOption::KeepOther);
+		}
+	}, &st::menuIconSend);
+}
+
 } // namespace StaticGram::Money
