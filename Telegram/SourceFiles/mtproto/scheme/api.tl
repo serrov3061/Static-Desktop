@@ -2990,7 +2990,7 @@ channels.toggleJoinRequest#ecc2618 flags:# apply_to_invites:flags.1?true channel
 channels.reorderUsernames#b45ced1d channel:InputChannel order:Vector<string> = Bool;
 channels.toggleUsername#50f24105 channel:InputChannel username:string active:Bool = Bool;
 channels.deactivateAllUsernames#a245dd3 channel:InputChannel = Bool;
-channels.toggleForum#3ff75734 channel:InputChannel enabled:Bool tabs:Bool = Updates;
+channels.toggleForum#a2952b54 channel:InputChannel enabled:Bool tabs:Bool sidebar:Bool = Updates;
 channels.toggleAntiSpam#68f3e4eb channel:InputChannel enabled:Bool = Updates;
 channels.reportAntiSpamFalsePositive#a850a693 channel:InputChannel msg_id:int = Bool;
 channels.toggleParticipantsHidden#6a6e7854 channel:InputChannel enabled:Bool = Updates;
@@ -3341,8 +3341,5 @@ tondns.buyListed#c2f511da name:string expected_price:long request_key:string = t
 tondns.getListings#b4961c29 offset:int limit:int sort:string = tondns.Listings;
 tondns.getMyListings#ecf0d678 = tondns.Listings;
 
-// StaticGram: gramsrv speaks Layer 232 (+ private gramwallet/sgcard/tondns).
-// Upstream 7.4.1 is Layer 233: its additions are kept (the server never
-// sends them), the one changed method (channels.toggleForum) uses the 232
-// definition.
-// LAYER 232
+// StaticGram: gramsrv speaks Layer 233 (+ private gramwallet/sgcard/tondns).
+// LAYER 233
