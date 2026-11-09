@@ -65,6 +65,25 @@ namespace {
 		helper.context());
 }
 
+// StaticGram: with the rounded mokaGram field the currency icon must sit
+// inside the field, after the inner padding, vertically centred on the
+// text line, and the text must start after it.
+constexpr auto kMoneyIconLeft = 12;
+constexpr auto kMoneyIconSkip = 6;
+
+[[nodiscard]] int MoneyIconTextLeft(not_null<RpWidget*> icon) {
+	return kMoneyIconLeft + std::max(icon->width(), 20) + kMoneyIconSkip;
+}
+
+void PlaceMoneyInputIcon(
+		not_null<RpWidget*> icon,
+		const style::InputField &st) {
+	const auto line = st.style.font->height;
+	icon->move(
+		kMoneyIconLeft,
+		st.textMargins.top() + (line - icon->height()) / 2);
+}
+
 [[nodiscard]] QImage MakeEmojiFrame(int index, int size) {
 	const auto path = u":/gui/dice/dice%1.svg"_q.arg(index);
 
@@ -220,9 +239,17 @@ not_null<NumberInput*> AddStarsInputField(
 			container,
 			st::editTagField.heightMin),
 		st::boxRowPadding);
+	// StaticGram: the text starts after the currency icon.
+	static const auto fieldSt = [] {
+		auto result = st::editTagField;
+		result.textMargins.setLeft(std::max(
+			result.textMargins.left(),
+			kMoneyIconLeft + 20 + kMoneyIconSkip));
+		return result;
+	}();
 	const auto result = CreateChild<NumberInput>(
 		wrap,
-		st::editTagField,
+		fieldSt,
 		rpl::single(u"0"_q),
 		args.value ? QString::number(*args.value) : QString(),
 		args.max ? args.max : std::numeric_limits<int>::max());
@@ -231,7 +258,7 @@ not_null<NumberInput*> AddStarsInputField(
 		Earn::IconCreditsEmoji());
 
 	wrap->widthValue() | rpl::on_next([=](int width) {
-		icon->move(st::starsFieldIconPosition);
+		PlaceMoneyInputIcon(icon, fieldSt);
 		result->move(0, 0);
 		result->resize(width, result->height());
 		wrap->resize(width, result->height());
@@ -255,9 +282,15 @@ not_null<InputField*> AddTonInputField(
 	const auto icon = AddMoneyInputIcon(
 		result,
 		Earn::IconCurrencyEmoji());
+	const auto &fieldSt = st::editTagField;
+	result->setAdditionalMargins(QMargins(
+		std::max(0, MoneyIconTextLeft(icon) - fieldSt.textMargins.left()),
+		0,
+		0,
+		0));
 
 	wrap->widthValue() | rpl::on_next([=](int width) {
-		icon->move(st::tonFieldIconPosition);
+		PlaceMoneyInputIcon(icon, fieldSt);
 		result->move(0, 0);
 		result->resize(width, result->height());
 		wrap->resize(width, result->height());
