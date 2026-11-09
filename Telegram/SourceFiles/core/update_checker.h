@@ -18,6 +18,26 @@ namespace Core {
 bool UpdaterDisabled();
 void SetUpdaterDisabledAtStartup();
 
+// StaticGram: a mandatory release announced by our update feed, it blocks
+// the app with the "update StaticGram" box (see staticgram/sg_update.h).
+struct ForcedUpdate {
+	int version = 0; // AppVersion of the release that gets installed.
+	QString versionName;
+
+	explicit operator bool() const {
+		return version > 0;
+	}
+	friend inline bool operator==(
+		const ForcedUpdate &,
+		const ForcedUpdate &) = default;
+};
+[[nodiscard]] rpl::producer<ForcedUpdate> ForcedUpdateValue();
+
+// False when this build can't replace its own files (an AppImage): the
+// user downloads the new version from UpdateManualDownloadUrl() instead.
+[[nodiscard]] bool UpdateSelfInstallAvailable();
+[[nodiscard]] QString UpdateManualDownloadUrl();
+
 class Updater;
 
 class UpdateChecker {

@@ -555,7 +555,8 @@ const QString &readAutoupdatePrefixRaw() {
 			return AutoupdatePrefix(value);
 		}
 	}
-	return AutoupdatePrefix("https://td.telegram.org");
+	// StaticGram: unused by the update checker, which only asks our host.
+	return AutoupdatePrefix("https://dl.staticgram.top/desktop");
 }
 
 void writeAutoupdatePrefix(const QString &prefix) {

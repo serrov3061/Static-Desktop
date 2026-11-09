@@ -246,7 +246,6 @@ jobs:
           -D CMAKE_CONFIGURATION_TYPES=Release ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
-          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
           %TDESKTOP_BUILD_DEFINE%
 
@@ -258,11 +257,12 @@ jobs:
           set OUT=%TBUILD%\%REPO_NAME%\out\Release
           mkdir artifact
           if exist %OUT%\StaticGram.exe (move %OUT%\StaticGram.exe artifact\StaticGram.exe) else (move %OUT%\Telegram.exe artifact\StaticGram.exe)
-          if exist %OUT%\Updater.exe move %OUT%\Updater.exe artifact/
+          if not exist %OUT%\Updater.exe (echo Updater.exe was not built, OTA updates need it & exit /b 1)
+          move %OUT%\Updater.exe artifact\Updater.exe
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
         if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: artifact\
-          retention-days: 1
+          retention-days: 7

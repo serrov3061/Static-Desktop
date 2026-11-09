@@ -378,6 +378,18 @@ constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_proxy_official", "Официальный" },
 	{ "lng_sg_proxy_not_for_sg", "Этот прокси сделан для Telegram и, скорее всего, не будет работать со StaticGram. Используйте официальные прокси StaticGram или SOCKS5." },
 	// p-misc end
+	// ota
+	{ "lng_sg_update_title", "Обновите StaticGram" },
+	{ "lng_sg_update_forced_text", "Эта версия StaticGram больше не поддерживается. Установите версию {version}, чтобы продолжить." },
+	{ "lng_sg_update_checking", "Проверяем обновления…" },
+	{ "lng_sg_update_downloading", "Загрузка обновления… {percent}" },
+	{ "lng_sg_update_ready", "Обновление загружено. Перезапустите StaticGram, чтобы установить его." },
+	{ "lng_sg_update_failed", "Не удалось загрузить обновление. Повторите попытку или скачайте новую версию с сайта." },
+	{ "lng_sg_update_manual", "Скачайте новую версию с сайта и установите её." },
+	{ "lng_sg_update_restart", "Перезапустить" },
+	{ "lng_sg_update_retry", "Повторить" },
+	{ "lng_sg_update_download", "Скачать" },
+	// ota end
 });
 
 // The "{tag}" placeholders become the lang tag commands, the way the lang

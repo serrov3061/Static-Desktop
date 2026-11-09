@@ -2472,6 +2472,8 @@ PRIVATE
     staticgram/sg_money_nft.h
     staticgram/sg_settings_boxes.cpp
     staticgram/sg_settings_boxes.h
+    staticgram/sg_update.cpp
+    staticgram/sg_update.h
     # p-misc
     staticgram/sg_domain_card.cpp
     staticgram/sg_domain_card.h

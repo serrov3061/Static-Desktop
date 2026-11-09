@@ -91,6 +91,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_databases.h"
 #include "storage/storage_folder_archive.h"
 #include "storage/localstorage.h"
+#include "staticgram/sg_update.h"
 #include "payments/payments_checkout_process.h"
 #include "tgw/tgw_runtime.h"
 #include "export/export_manager.h"
@@ -492,6 +493,8 @@ void Application::run() {
 	}
 
 	processCreatedWindow(_lastActivePrimaryWindow);
+
+	StaticGram::SetupForcedUpdate(_lifetime);
 
 	_savedWindows->startRestore();
 
@@ -1372,7 +1375,8 @@ bool Application::openInternalUrl(const QString &url, QVariant context) {
 }
 
 QString Application::changelogLink() const {
-	return u"https://telegramdesktop.github.io/tdesktop/changelog/"_q;
+	// StaticGram: shown in the "updated to version" notice after an update.
+	return u"https://dl.staticgram.top/"_q;
 }
 
 bool Application::openCustomUrl(

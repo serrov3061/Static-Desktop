@@ -81,7 +81,31 @@ constexpr auto kFlatpakPortalObjectPath = "/org/freedesktop/portal/Flatpak";
 constexpr auto kFlatpakUpdated = "/app/.updated"_cs;
 #endif // !Q_OS_WIN && !Q_OS_MAC
 
+#ifdef TDESKTOP_DISABLE_AUTOUPDATE
 bool UpdaterIsDisabled = true;
+#else // TDESKTOP_DISABLE_AUTOUPDATE
+bool UpdaterIsDisabled = false;
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
+
+// StaticGram: updates come only from our own host, never from Telegram.
+// <prefix>/current is the JSON feed written by sg-desktop-sign-update.sh,
+// its links are relative to the prefix and point to v2 packages signed
+// with our keys (Resources/update/), packages signed by Telegram fail the
+// manifest root signature check.
+constexpr auto kUpdatesPrefix = "https://dl.staticgram.top/desktop"_cs;
+constexpr auto kManualDownloadUrl = "https://dl.staticgram.top/"_cs;
+
+// StaticGram: our feed is a small static file, so the checks are more
+// frequent than upstream's eight hours (a mandatory release must reach
+// clients quickly), and the first check of a launch is not delayed.
+constexpr auto kUpdateDelayConstPart = 2 * 3600;
+constexpr auto kUpdateDelayRandPart = 3600;
+bool CheckedThisLaunch = false;
+
+[[nodiscard]] rpl::variable<ForcedUpdate> &ForcedUpdateState() {
+	static auto &result = *new rpl::variable<ForcedUpdate>();
+	return result;
+}
 
 std::weak_ptr<Updater> UpdaterInstance;
 
@@ -300,7 +324,7 @@ std::shared_ptr<Updater> GetUpdaterInstance() {
 	return result;
 }
 
-[[nodiscard]] base::weak_ptr<Main::Session> LookupCanaryPrivateSession(
+[[maybe_unused]] [[nodiscard]] base::weak_ptr<Main::Session> LookupCanaryPrivateSession(
 		base::weak_ptr<Main::Session> fallback) {
 	if (BuildUpdateChannel != Updates::Channel::CanaryPrivate
 		|| !CanaryPrivateChannelId
@@ -727,11 +751,58 @@ rpl::lifetime &Checker::lifetime() {
 HttpChecker::HttpChecker(bool testing) : Checker(testing) {
 }
 
+// StaticGram: a release is mandatory for this build when an entry of the
+// channels it follows has "can_not_skip" and is newer than AppVersion, or
+// has "min_version" above AppVersion (like Android's can_not_skip). The
+// result names the newest offered version, the one that gets installed.
+[[nodiscard]] ForcedUpdate ParseForcedUpdate(
+		const QByteArray &json,
+		bool testing) {
+	const auto document = QJsonDocument::fromJson(json);
+	if (!document.isObject()) {
+		return {};
+	}
+	const auto platform = document.object().value(
+		Platform::AutoUpdateKey()).toObject();
+	const auto channels = cInstallBetaVersion()
+		? std::vector<QString>{ u"beta"_q, u"stable"_q }
+		: std::vector<QString>{ u"stable"_q };
+	const auto number = [](const QJsonValue &value) {
+		if (value.isString()) {
+			return value.toString().toLongLong();
+		} else if (value.isDouble()) {
+			return qint64(base::SafeRound(value.toDouble()));
+		}
+		return qint64(0);
+	};
+	auto forced = false;
+	auto result = ForcedUpdate();
+	for (const auto &channel : channels) {
+		const auto entry = platform.value(channel).toObject();
+		const auto released = number(
+			entry.value(testing ? u"testing"_q : u"released"_q));
+		if (released <= AppVersion) {
+			continue;
+		}
+		if (entry.value(u"can_not_skip"_q).toBool()
+			|| number(entry.value(u"min_version"_q)) > AppVersion) {
+			forced = true;
+		}
+		if (released > result.version) {
+			result.version = int(released);
+			result.versionName = entry.value(u"version"_q).toString();
+		}
+	}
+	if (!forced) {
+		return {};
+	} else if (result.versionName.isEmpty()) {
+		result.versionName = FormatVersionDisplay(result.version);
+	}
+	return result;
+}
+
 void HttpChecker::start() {
-	const auto updaterVersion = Platform::AutoUpdateVersion();
-	const auto path = Local::readAutoupdatePrefix()
-		+ qstr("/current")
-		+ (updaterVersion > 1 ? QString::number(updaterVersion) : QString());
+	const auto path = kUpdatesPrefix.utf16() + u"/current"_q;
 	auto url = QUrl(path);
 	DEBUG_LOG(("Update Info: requesting update state"));
 	auto request = QNetworkRequest(url);
@@ -864,10 +935,22 @@ std::optional<QString> HttpChecker::parseResponse(
 	if (!result) {
 		return std::nullopt;
 	}
+	const auto forced = ParseForcedUpdate(response, testing());
+	ForcedUpdateState() = forced;
+	if (!bestLink.startsWith('/') || bestLink.startsWith(u"//"_q)) {
+		LOG(("Update Error: Link must be relative to our prefix."));
+		return std::nullopt;
+	} else if (!UpdateSelfInstallAvailable()
+		|| (!cAutoUpdate() && !forced)) {
+		// Nothing to download: the user turned automatic updates off (a
+		// mandatory release is still installed) or this build can't
+		// replace itself (AppImage), see the forced update box.
+		return QString();
+	}
 	return validateLatestUrl(
 		bestAvailableVersion,
 		bestIsAvailableAlpha,
-		Local::readAutoupdatePrefix() + bestLink);
+		kUpdatesPrefix.utf16() + bestLink);
 }
 
 QString HttpChecker::validateLatestUrl(
@@ -1518,6 +1601,28 @@ bool UpdaterDisabled() {
 	return UpdaterIsDisabled;
 }
 
+rpl::producer<ForcedUpdate> ForcedUpdateValue() {
+	return ForcedUpdateState().value();
+}
+
+bool UpdateSelfInstallAvailable() {
+	if (UpdaterDisabled()) {
+		return false;
+	}
+#if !defined Q_OS_WIN && !defined Q_OS_MAC
+	// An AppImage runs from a read-only mount, its files can't be replaced
+	// in place: the new AppImage is downloaded by the user.
+	if (!qEnvironmentVariableIsEmpty("APPIMAGE")) {
+		return false;
+	}
+#endif // !Q_OS_WIN && !Q_OS_MAC
+	return true;
+}
+
+QString UpdateManualDownloadUrl() {
+	return kManualDownloadUrl.utf16();
+}
+
 void SetUpdaterDisabledAtStartup() {
 	Expects(UpdaterInstance.lock() == nullptr);
 
@@ -1715,7 +1820,9 @@ void Updater::start(bool forceWait) {
 	}
 
 	_timer.cancel();
-	if (!cAutoUpdate() || _action != Action::Waiting) {
+	// StaticGram: the feed is checked even with automatic updates off,
+	// HttpChecker downloads then only a mandatory release.
+	if (_action != Action::Waiting) {
 		return;
 	}
 
@@ -1723,15 +1830,16 @@ void Updater::start(bool forceWait) {
 	const auto frequent = cAlphaVersion() || BuildIsCanary;
 	const auto constDelay = frequent
 		? kFrequentUpdateDelayConstPart
-		: UpdateDelayConstPart;
+		: kUpdateDelayConstPart;
 	const auto randDelay = frequent
 		? kFrequentUpdateDelayRandPart
-		: UpdateDelayRandPart;
+		: kUpdateDelayRandPart;
 	const auto updateInSecs = cLastUpdateCheck()
 		+ constDelay
 		+ int(rand() % randDelay)
 		- base::unixtime::now();
-	auto sendRequest = (updateInSecs <= 0)
+	auto sendRequest = !CheckedThisLaunch
+		|| (updateInSecs <= 0)
 		|| (updateInSecs > constDelay + randDelay);
 	if (!sendRequest && !forceWait) {
 		if (!FindUpdateFile().isEmpty()) {
@@ -1752,20 +1860,14 @@ void Updater::start(bool forceWait) {
 		}
 #endif // !Q_OS_WIN && !Q_OS_MAC
 	} else if (sendRequest) {
-		if (BuildIsCanary) {
-			// Canary builds discover updates only through their own MTP
-			// channels, the v1 HTTP feed serves other channels.
-			startImplementation(&_httpImplementation, nullptr);
-		} else {
-			startImplementation(
-				&_httpImplementation,
-				std::make_unique<HttpChecker>(_testing));
-		}
+		CheckedThisLaunch = true;
 		startImplementation(
-			&_mtpImplementation,
-			std::make_unique<MtpChecker>(
-				LookupCanaryPrivateSession(_session),
-				_testing));
+			&_httpImplementation,
+			std::make_unique<HttpChecker>(_testing));
+
+		// StaticGram: no MTP feed, Telegram's update channels don't exist
+		// on our server. The empty checker just reports a failure.
+		startImplementation(&_mtpImplementation, nullptr);
 
 		_checking.fire({});
 	} else {
@@ -2205,11 +2307,6 @@ void UpdateApplication() {
 #elif defined OS_MAC_STORE // OS_WIN_STORE
 			return "https://itunes.apple.com/ae/app/telegram-desktop/id946399090";
 #else // OS_WIN_STORE || OS_MAC_STORE
-			if (KSandbox::isFlatpak()) {
-				return "https://flathub.org/apps/details/org.telegram.desktop";
-			} else if (KSandbox::isSnap()) {
-				return "https://snapcraft.io/telegram-desktop";
-			}
 			return "https://dl.staticgram.top/";
 #endif // OS_WIN_STORE || OS_MAC_STORE
 		}();

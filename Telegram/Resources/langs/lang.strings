@@ -9487,5 +9487,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_proxy_official" = "Official";
 "lng_sg_proxy_not_for_sg" = "This proxy was made for another network and will most likely not work with StaticGram. Use the official StaticGram proxies or SOCKS5.";
 // p-misc end
+// ota
+"lng_sg_update_title" = "Update StaticGram";
+"lng_sg_update_forced_text" = "This version of StaticGram is no longer supported. Install version {version} to continue.";
+"lng_sg_update_checking" = "Checking for updates…";
+"lng_sg_update_downloading" = "Downloading the update… {percent}";
+"lng_sg_update_ready" = "The update is ready. Restart StaticGram to install it.";
+"lng_sg_update_failed" = "Could not download the update. Try again or download the new version from the website.";
+"lng_sg_update_manual" = "Download the new version from the website and install it.";
+"lng_sg_update_restart" = "Restart";
+"lng_sg_update_retry" = "Try again";
+"lng_sg_update_download" = "Download";
+// ota end
 
 // Keys finished

@@ -375,7 +375,7 @@ bool update() {
 			} while (copyTries < 100);
 			if (!copyResult) {
 				const auto error = FormatUpdateError(
-					L"Failed to update Telegram :(\nCould not copy:\n"
+					L"Failed to update StaticGram :(\nCould not copy:\n"
 						+ fname + L"\nTo:\n" + tofname,
 					errorCode);
 				writeLog(error);
@@ -516,14 +516,14 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 				exeName = args[i];
 				for (int j = 0, l = exeName.size(); j < l; ++j) {
 					if (exeName[j] == L'/' || exeName[j] == L'\\') {
-						exeName = L"Telegram.exe";
+						exeName = L"StaticGram.exe";
 						break;
 					}
 				}
 			}
 		}
 		if (exeName.empty()) {
-			exeName = L"Telegram.exe";
+			exeName = L"StaticGram.exe";
 		}
 		if (!processArgumentsValid) {
 			writeLog(L"Invalid update process arguments; "
@@ -550,12 +550,15 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 						processCreated);
 					if (error != ERROR_SUCCESS) {
 						writeLog(FormatUpdateError(
-							L"Could not finish closing Telegram; continuing with copy retries.",
+							L"Could not finish closing StaticGram; continuing with copy retries.",
 							error));
 					}
 				}
 				if (needupdate && update()) {
-					updateRegistry();
+					// StaticGram: no installer of ours writes an uninstall
+					// key, the one updateRegistry() edits belongs to the
+					// official Telegram Desktop, so it is left alone.
+					writeLog(L"Update done, registry left untouched.");
 				}
 				if (writeprotected) { // if we can't clear all tupdates\ready (Updater.exe is there) - clear only version
 					if (DeleteFile(L"tupdates\\temp\\tdata\\version") || DeleteFile(L"tupdates\\ready\\tdata\\version")) {
@@ -643,7 +646,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 	return 0;
 }
 
-static const WCHAR *_programName = L"Telegram Desktop"; // folder in APPDATA, if current path is unavailable for writing
+static const WCHAR *_programName = L"StaticGram"; // folder in APPDATA, if current path is unavailable for writing
 static const WCHAR *_exeName = L"Updater.exe";
 
 LPTOP_LEVEL_EXCEPTION_FILTER _oldWndExceptionFilter = 0;

@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (exeName.empty() || exeName.find('/') != string::npos) {
-		exeName = "Telegram";
+		exeName = "StaticGram";
 	}
 	openLog();
 
@@ -539,7 +539,7 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 
-		writeLog("Executed Telegram, closing log and quitting..");
+		writeLog("Executed StaticGram, closing log and quitting..");
 	}
 
 	closeLog();

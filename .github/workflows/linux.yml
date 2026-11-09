@@ -127,7 +127,6 @@ jobs:
           -D CMAKE_CONFIGURATION_TYPES=Release \
           -D CMAKE_BUILD_TYPE=Release \
           -D TDESKTOP_API_TEST=ON \
-          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON \
           $DEFINE
 
@@ -151,6 +150,10 @@ jobs:
         if: env.ONLY_CACHE == 'false'
         run: |
           filePath="out/Release/Telegram"
+          if ! test -f out/Release/Updater; then
+            echo "Updater was not built, OTA updates need it."
+            exit 1
+          fi
           if test -f "$filePath"; then
             echo "Build successfully done! :)"
             size=$(stat -c %s "$filePath")
@@ -170,9 +173,14 @@ jobs:
           strip dist/StaticGram || true
           chmod 755 dist/StaticGram
 
-          # Plain tarball with the binary.
+          # Plain tarball with the binary and the Updater next to it: this
+          # install updates itself in place (sg-desktop-sign-update.sh packs
+          # both files from this tarball). The AppImage can't, no Updater.
           mkdir -p tarball/StaticGram
           cp dist/StaticGram tarball/StaticGram/
+          cp out/Release/Updater tarball/StaticGram/Updater
+          strip tarball/StaticGram/Updater || true
+          chmod 755 tarball/StaticGram/Updater
           tar -C tarball -czf dist/StaticGram-Linux-x64.tar.gz StaticGram
 
           # AppDir: the binary is self-contained (static Qt, glibc 2.28),
