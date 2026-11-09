@@ -7369,6 +7369,7 @@ void HistoryItem::setServiceMessageByAction(const MTPmessageAction &action) {
 		const auto isSelf = (_from->id == _from->session().userPeerId());
 		const auto peer = isSelf ? _history->peer : _from;
 		_history->session().giftBoxStickersPacks().tonLoad();
+		auto result = PreparedServiceText();
 		const auto amount = action.vamount().v;
 		const auto currency = qs(action.vcurrency());
 		// StaticGram: the gift is GRAM (crypto_amount, nanoton). The fiat

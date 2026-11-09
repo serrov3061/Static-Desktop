@@ -299,7 +299,6 @@ private:
 		{ &st::menuIconToMainMenu, QString::fromUtf8("➡️") },
 		{ &st::menuIconTradable, QString::fromUtf8("📈") },
 		{ &st::menuIconTransparent, QString::fromUtf8("🔘") },
-		{ &st::menuIconTTLAny, QString::fromUtf8("⏳") },
 		{ &st::menuIconUnarchive, QString::fromUtf8("📁") },
 		{ &st::menuIconUnblock, QString::fromUtf8("✅") },
 		{ &st::menuIconUnfave, QString::fromUtf8("❌") },
