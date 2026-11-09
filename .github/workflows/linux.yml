@@ -84,6 +84,17 @@ jobs:
           rm -rf ${{ runner.temp }}/.buildx-cache
           mv ${{ runner.temp }}/.buildx-cache{-new,}
 
+      # StaticGram: save the Libraries cache right away, a client build that
+      # hits the 6 h limit must not lose 4 h of Libraries.
+      - name: Save Libraries cache now.
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ runner.temp }}/.buildx-cache
+            ${{ runner.temp }}/.mount-cache
+          key: ${{ runner.OS }}-libs-${{ hashFiles('Telegram/build/docker/centos_env/**') }}
+
       - name: Restore Telegram Desktop cache.
         id: cache-tdesktop
         if: env.ONLY_CACHE == 'false'
