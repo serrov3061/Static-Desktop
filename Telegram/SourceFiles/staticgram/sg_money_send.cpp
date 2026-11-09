@@ -229,7 +229,7 @@ void SendBox(
 						return FormatAmount(kind, v);
 					})),
 			st::sgMoneyRecipientStatus),
-		st::sgMoneyFieldPadding);
+		st::sgMoneyBalancePadding);
 
 	const auto comment = container->add(
 		object_ptr<Ui::InputField>(

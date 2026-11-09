@@ -163,10 +163,6 @@ void Widget::paintContent(QPainter &p) {
 	p.drawRoundedRect(innerRect(), radius, radius);
 }
 
-void Widget::moveByBottom() {
-	updateContentHeight();
-}
-
 void Widget::hideFast() {
 	if (isHidden()) return;
 

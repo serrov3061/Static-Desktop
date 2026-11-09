@@ -138,9 +138,17 @@ sgMoneyRecipientStatus: FlatLabel(defaultFlatLabel) {
 }
 sgMoneyFieldPadding: margins(22px, 8px, 22px, 4px);
 sgMoneySubtitlePadding: margins(22px, 10px, 22px, 2px);
+// Same look as the amount field: single line that grows with the text,
+// the placeholder inside the field, vertically centred.
 sgMoneyCommentField: InputField(defaultInputField) {
+	textMargins: margins(12px, 9px, 12px, 9px);
+	placeholderMargins: margins(0px, 0px, 0px, 0px);
+	placeholderScale: 0.;
+	placeholderShift: 0px;
+	heightMin: 38px;
 	heightMax: 120px;
 }
+sgMoneyBalancePadding: margins(22px, 14px, 22px, 6px);
 
 // p-money2
 sgMoneyAddressAboutPadding: margins(22px, 0px, 22px, 8px);

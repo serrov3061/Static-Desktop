@@ -518,7 +518,6 @@ public:
 		return _selectSt;
 	}
 	const style::PeerList &computeListSt() const;
-	const style::MultiSelect &computeSelectSt() const;
 
 	virtual Main::Session &session() const = 0;
 
@@ -723,7 +722,6 @@ public:
 	PeerListRowId updateFromParentDrag(QPoint globalPosition);
 	void dragLeft();
 
-	void setIgnoreHiddenRowsOnSearch(bool value);
 	void setShowSectionHeaders(bool shown);
 
 	struct SectionLetter {
@@ -974,7 +972,6 @@ private:
 	int _aboveHeight = 0;
 	int _belowHeight = 0;
 	bool _hideEmpty = false;
-	bool _ignoreHiddenRowsOnSearch = false;
 	object_ptr<Ui::RpWidget> _aboveWidget = { nullptr };
 	object_ptr<Ui::RpWidget> _aboveSearchWidget = { nullptr };
 	object_ptr<Ui::RpWidget> _belowWidget = { nullptr };

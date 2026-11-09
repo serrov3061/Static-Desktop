@@ -2903,6 +2903,7 @@ void Controller::saveForum() {
 		channel->inputChannel(),
 		MTP_bool(*_savingData.forum),
 		MTP_bool(*_savingData.forum && *_savingData.forumTabs)
+		// StaticGram: Layer 232 toggleForum has no "sidebar" parameter.
 	)).done([=](const MTPUpdates &result) {
 		const auto weak = base::make_weak(this);
 		channel->session().api().applyUpdates(result);
