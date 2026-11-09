@@ -1,0 +1,210 @@
+# This file is part of Telegram Desktop,
+# the official desktop application for the Telegram messaging service.
+#
+# For license and copyright information please follow this link:
+# https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+
+add_library(td_iv OBJECT)
+init_non_host_target(td_iv)
+add_library(tdesktop::td_iv ALIAS td_iv)
+
+add_library(td_iv_reorder_warning_off INTERFACE)
+target_compile_options(td_iv_reorder_warning_off
+INTERFACE
+    $<$<CXX_COMPILER_ID:MSVC>:/wd5038>
+    $<$<CXX_COMPILER_ID:MSVC>:/wd4265>
+    $<$<CXX_COMPILER_ID:MSVC>:/wd4005>
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-reorder-ctor>
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-reorder>
+)
+
+if (MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio ")
+    set_property(TARGET td_iv APPEND PROPERTY VS_PROJECT_IMPORT
+        ${CMAKE_CURRENT_LIST_DIR}/td_iv_msvc_warning_suppressions.props)
+endif()
+
+# StaticGram: the .props import above only reaches the "Visual Studio" CMake
+# generator -- Ninja/Ninja Multi-Config builds never see it, so a newer MSVC
+# toolset (here: warning C5038 from bundled MicroTeX, member init order)
+# turns into a hard error under /WX with nothing to silence it.
+#
+# This MUST be an INTERFACE library linked into td_iv (below, alongside
+# td_iv_reorder_warning_off), not a plain target_compile_options(td_iv ...)
+# call here: td_iv's own PRIVATE COMPILE_OPTIONS are ordered on the command
+# line BEFORE the base /W4 /w15038 -WX flags a later shared setup step
+# adds, so a same-file /wd5038 here gets silently overridden by /w15038
+# afterward. A linked INTERFACE library's INTERFACE_COMPILE_OPTIONS land
+# after those base flags instead, exactly the same reasoning
+# cmake/external/microtex/CMakeLists.txt documents for
+# external_microtex_warnings_off.
+add_library(td_iv_microtex_warnings_off INTERFACE)
+if (MSVC)
+    target_compile_options(td_iv_microtex_warnings_off
+    INTERFACE
+        /wd5038
+        /wd4265
+        /wd4005
+    )
+endif()
+
+target_precompile_headers(td_iv PRIVATE ${src_loc}/iv/iv_pch.h)
+nice_target_sources(td_iv ${src_loc}
+PRIVATE
+    iv/editor/iv_editor_article_style.cpp
+    iv/editor/iv_editor_article_style.h
+    iv/editor/iv_editor_auto_pair.cpp
+    iv/editor/iv_editor_auto_pair.h
+    iv/editor/iv_editor_box.cpp
+    iv/editor/iv_editor_box.h
+    iv/editor/iv_editor_clipboard.cpp
+    iv/editor/iv_editor_clipboard.h
+    iv/editor/iv_editor_clipboard_import.cpp
+    iv/editor/iv_editor_clipboard_import.h
+    iv/editor/iv_editor_commands.cpp
+    iv/editor/iv_editor_commands.h
+    iv/editor/iv_editor_insert_suggestions.cpp
+    iv/editor/iv_editor_insert_suggestions.h
+    iv/editor/iv_editor_math_box.cpp
+    iv/editor/iv_editor_math_box.h
+    iv/editor/iv_editor_page_blocks.cpp
+    iv/editor/iv_editor_page_blocks.h
+    iv/editor/iv_editor_page_list.cpp
+    iv/editor/iv_editor_page_list.h
+    iv/editor/iv_editor_page_media.cpp
+    iv/editor/iv_editor_page_media.h
+    iv/editor/iv_editor_page_path.cpp
+    iv/editor/iv_editor_page_path.h
+    iv/editor/iv_editor_page_table_grid.cpp
+    iv/editor/iv_editor_page_table_grid.h
+    iv/editor/iv_editor_prepared_selection.cpp
+    iv/editor/iv_editor_prepared_selection.h
+    iv/editor/iv_editor_structure_menu.cpp
+    iv/editor/iv_editor_structure_menu.h
+    iv/editor/iv_editor_state.cpp
+    iv/editor/iv_editor_state.h
+    iv/editor/iv_editor_text_entities.cpp
+    iv/editor/iv_editor_text_entities.h
+    iv/editor/iv_editor_toolbar_pill.cpp
+    iv/editor/iv_editor_toolbar_pill.h
+    iv/editor/iv_editor_widget.cpp
+    iv/editor/iv_editor_widget.h
+    iv/editor/iv_editor_window.cpp
+    iv/editor/iv_editor_window.h
+
+    iv/iv_controller.cpp
+    iv/iv_controller.h
+    iv/iv_data.cpp
+    iv/iv_data.h
+    iv/iv_delegate.h
+    iv/iv_pch.h
+    iv/iv_search_bar.cpp
+    iv/iv_search_bar.h
+    iv/iv_search_controller.cpp
+    iv/iv_search_controller.h
+    iv/iv_zoom_controls.cpp
+    iv/iv_zoom_controls.h
+)
+
+nice_target_sources(td_iv ${src_loc}
+PRIVATE
+    iv/markdown/iv_markdown_common.cpp
+    iv/markdown/iv_markdown_common.h
+    iv/markdown/iv_markdown_article.cpp
+    iv/markdown/iv_markdown_article.h
+    iv/markdown/iv_markdown_article_caption_hit.cpp
+    iv/markdown/iv_markdown_article_caption_hit.h
+    iv/markdown/iv_markdown_article_layout_blocks.cpp
+    iv/markdown/iv_markdown_article_layout_blocks.h
+    iv/markdown/iv_markdown_article_layout_structure.cpp
+    iv/markdown/iv_markdown_article_layout_structure.h
+    iv/markdown/iv_markdown_article_paint.cpp
+    iv/markdown/iv_markdown_article_paint.h
+    iv/markdown/iv_markdown_article_quote.cpp
+    iv/markdown/iv_markdown_article_quote.h
+    iv/markdown/iv_markdown_article_scroll_forwarder.cpp
+    iv/markdown/iv_markdown_article_scroll_forwarder.h
+    iv/markdown/iv_markdown_article_selection.cpp
+    iv/markdown/iv_markdown_article_selection.h
+    iv/markdown/iv_markdown_article_text.cpp
+    iv/markdown/iv_markdown_article_text.h
+    iv/markdown/iv_markdown_button_row.cpp
+    iv/markdown/iv_markdown_button_row.h
+    iv/markdown/iv_markdown_controller.cpp
+    iv/markdown/iv_markdown_controller.h
+    iv/markdown/iv_markdown_document.cpp
+    iv/markdown/iv_markdown_document.h
+    iv/markdown/iv_markdown_embed_overlay.cpp
+    iv/markdown/iv_markdown_embed_overlay.h
+    iv/markdown/iv_markdown_history_view_media.cpp
+    iv/markdown/iv_markdown_history_view_media.h
+    iv/markdown/iv_markdown_math.cpp
+    iv/markdown/iv_markdown_math.h
+    iv/markdown/iv_markdown_math_renderer.cpp
+    iv/markdown/iv_markdown_math_renderer.h
+    iv/markdown/iv_markdown_microtex.cpp
+    iv/markdown/iv_markdown_microtex.h
+    iv/markdown/iv_markdown_parse.cpp
+    iv/markdown/iv_markdown_parse.h
+    iv/markdown/iv_markdown_parse_convert.cpp
+    iv/markdown/iv_markdown_parse_convert.h
+    iv/markdown/iv_markdown_parse_finalize.cpp
+    iv/markdown/iv_markdown_parse_finalize.h
+    iv/markdown/iv_markdown_parse_validate.cpp
+    iv/markdown/iv_markdown_parse_validate.h
+    iv/markdown/iv_markdown_media_block.cpp
+    iv/markdown/iv_markdown_media_block.h
+    iv/markdown/iv_markdown_media_reuse.cpp
+    iv/markdown/iv_markdown_media_reuse.h
+    iv/markdown/iv_markdown_prepare.cpp
+    iv/markdown/iv_markdown_prepare.h
+    iv/markdown/iv_markdown_prepare_blocks.cpp
+    iv/markdown/iv_markdown_prepare_blocks.h
+    iv/markdown/iv_markdown_prepare_formulas.cpp
+    iv/markdown/iv_markdown_prepare_formulas.h
+    iv/markdown/iv_markdown_prepare_inline.cpp
+    iv/markdown/iv_markdown_prepare_inline.h
+    iv/markdown/iv_markdown_prepare_links.cpp
+    iv/markdown/iv_markdown_prepare_links.h
+    iv/markdown/iv_markdown_prepare_native_blocks.cpp
+    iv/markdown/iv_markdown_prepare_native_blocks.h
+    iv/markdown/iv_markdown_prepare_native_richtext.cpp
+    iv/markdown/iv_markdown_prepare_native_richtext.h
+    iv/markdown/iv_markdown_prepare_serialize.cpp
+    iv/markdown/iv_markdown_prepare_serialize.h
+    iv/markdown/iv_markdown_prepare_state.cpp
+    iv/markdown/iv_markdown_prepare_state.h
+    iv/markdown/iv_markdown_slideshow_chrome.cpp
+    iv/markdown/iv_markdown_slideshow_chrome.h
+    iv/markdown/iv_markdown_theme.cpp
+    iv/markdown/iv_markdown_theme.h
+    iv/markdown/iv_markdown_view.cpp
+    iv/markdown/iv_markdown_view.h
+    iv/markdown/iv_markdown_view_widget.cpp
+    iv/markdown/iv_markdown_view_widget.h
+)
+
+target_link_libraries(td_iv
+PRIVATE
+    desktop-app::external_cmark_gfm
+    desktop-app::external_microtex
+    td_iv_reorder_warning_off
+    td_iv_microtex_warnings_off
+    desktop-app::lib_spellcheck
+)
+
+target_include_directories(td_iv
+PUBLIC
+    ${src_loc}
+)
+
+target_link_libraries(td_iv
+PUBLIC
+    desktop-app::lib_ui
+    tdesktop::td_scheme
+PRIVATE
+    desktop-app::lib_webview
+    desktop-app::lib_storage
+    desktop-app::external_ada
+    tdesktop::td_lang
+    tdesktop::td_ui
+)

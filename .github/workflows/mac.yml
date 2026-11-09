@@ -1,0 +1,166 @@
+name: MacOS.
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  macos:
+    name: MacOS
+    # StaticGram: Apple Silicon (arm64) runner, arm64-only Release build.
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        defines:
+          - ""
+    env:
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
+    steps:
+      - name: Get repository name.
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: ${{ env.REPO_NAME }}
+
+      - name: First set up.
+        run: |
+          sudo chown -R `whoami`:admin /usr/local/share
+
+          brew update
+          brew upgrade || true
+          brew install automake libtool meson nasm ninja pkg-config
+
+          # Disable spotlight.
+          sudo mdutil -a -i off
+
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+          sudo sed -i '' '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/ -g//' /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake
+
+          echo "LIBS_KEY=${{ runner.OS }}-libs-release-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}" >> $GITHUB_ENV
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ env.LIBS_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-libs-release-
+            ${{ runner.OS }}-libs-
+
+      - name: Libraries.
+        run: |
+          # StaticGram: Release third-party libraries too (no skip-release).
+          ./$REPO_NAME/Telegram/build/prepare/mac.sh silent
+
+      - name: Free up some disk space.
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+
+      - name: Save Libraries cache now.
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ env.LIBS_KEY }}
+
+      - name: Telegram Desktop build.
+        if: env.ONLY_CACHE == 'false'
+        run: |
+          cd $REPO_NAME/Telegram
+
+          DEFINE=""
+          if [ -n "${{ matrix.defines }}" ]; then
+            DEFINE="-D ${{ matrix.defines }}=ON"
+            echo Define from matrix: $DEFINE
+          fi
+
+          ./configure.sh \
+          -D CMAKE_CONFIGURATION_TYPES=Release \
+          -D CMAKE_OSX_ARCHITECTURES=arm64 \
+          -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+          -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+          -D TDESKTOP_API_TEST=ON \
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON \
+          $DEFINE
+
+          cmake --build ../out --config Release --parallel
+
+      - name: Package StaticGram.app and DMG.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          set -e
+          ROOT=$GITHUB_WORKSPACE/$REPO_NAME
+          VERSION=$(awk '/^AppVersionStr /{print $2}' $ROOT/Telegram/build/version)
+          OUT=$ROOT/out/Release
+          DIST=$GITHUB_WORKSPACE/dist
+          mkdir -p $DIST
+          APP=$DIST/StaticGram.app
+          rm -rf "$APP"
+          cp -R "$OUT/Telegram.app" "$APP"
+          lipo -archs "$APP/Contents/MacOS/Telegram"
+
+          # Our logo (the Windows / Linux icon) as the app icon.
+          ICONSET=$GITHUB_WORKSPACE/StaticGram.iconset
+          ART=$ROOT/Telegram/Resources/art
+          rm -rf "$ICONSET"
+          mkdir -p "$ICONSET"
+          for s in 16 32 128 256 512; do
+            cp "$ART/icon$s.png" "$ICONSET/icon_${s}x${s}.png"
+            cp "$ART/icon$s@2x.png" "$ICONSET/icon_${s}x${s}@2x.png"
+          done
+          iconutil --convert icns --output "$APP/Contents/Resources/StaticGram.icns" "$ICONSET"
+
+          PLIST="$APP/Contents/Info.plist"
+          PB=/usr/libexec/PlistBuddy
+          $PB -c "Set :CFBundleName StaticGram" "$PLIST"
+          $PB -c "Delete :CFBundleDisplayName" "$PLIST" || true
+          $PB -c "Add :CFBundleDisplayName string StaticGram" "$PLIST"
+          $PB -c "Set :CFBundleIdentifier com.staticgram.desktop" "$PLIST"
+          $PB -c "Set :CFBundleIconFile StaticGram.icns" "$PLIST"
+          $PB -c "Delete :CFBundleIconName" "$PLIST" || true
+          $PB -c "Set :CFBundleGetInfoString StaticGram" "$PLIST"
+          $PB -c "Set :CFBundleURLTypes:0:CFBundleURLName com.staticgram.desktop" "$PLIST" || true
+          $PB -c "Set :CFBundleURLTypes:0:CFBundleURLIconFile StaticGram.icns" "$PLIST" || true
+          $PB -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+          $PB -c "Set :CFBundleVersion $VERSION" "$PLIST"
+          rm -f "$APP/Contents/Resources/Assets.car"
+          rm -f "$APP/Contents/Resources/Icon.icns"
+
+          # Ad-hoc signature (no developer certificate).
+          xattr -cr "$APP"
+          codesign --force --deep -s - "$APP"
+          codesign --verify --deep --verbose=2 "$APP"
+
+          # Drag-to-Applications DMG.
+          STAGE=$GITHUB_WORKSPACE/dmg
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          DMG=$DIST/StaticGram-$VERSION-macOS-arm64.dmg
+          hdiutil create -volname "StaticGram $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          hdiutil verify "$DMG"
+          ls -la $DIST
+          echo "ARTIFACT_NAME=StaticGram-$VERSION-macOS-arm64" >> $GITHUB_ENV
+          echo "DMG_PATH=$DMG" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v7
+        if: env.UPLOAD_ARTIFACT == 'true'
+        name: Upload artifact.
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.DMG_PATH }}
+          retention-days: 7

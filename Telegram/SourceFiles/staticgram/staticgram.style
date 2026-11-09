@@ -1,0 +1,143 @@
+/*
+This file is part of StaticGram Desktop, a fork of Telegram Desktop.
+
+For license and copyright information please follow this link:
+https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+*/
+using "ui/basic.style";
+using "ui/widgets/widgets.style";
+using "ui/layers/layers.style";
+using "settings/settings.style";
+using "ui/controls/userpic_button.style";
+
+// exteraStatic badge box preview.
+sgBadgePreviewPadding: margins(22px, 12px, 22px, 12px);
+sgBadgePreviewUserpic: 56px;
+sgBadgePreviewSkip: 14px;
+sgBadgePreviewLineSkip: 4px;
+sgBadgePreviewEmojiSkip: 4px;
+sgBadgePreviewFrameRoom: 10px;
+sgBadgePreviewNameFont: font(15px semibold);
+sgBadgePreviewPlaceholderOpacity: 0.45;
+
+// Avatar frame box.
+sgFramePreviewUserpic: 88px;
+sgFramePreviewRoom: 20px;
+sgFramePreviewTop: 4px;
+sgFramePreviewNameSkip: 10px;
+sgFramePreviewLineSkip: 2px;
+sgFramePreviewBottom: 14px;
+sgFramePreviewNameFont: font(15px semibold);
+sgFramePickerHeight: 90px;
+sgFramePickerPadding: margins(10px, 0px, 10px, 0px);
+sgFramePickerUserpic: 40px;
+sgFramePickerUserpicTop: 12px;
+sgFramePickerLabelSkip: 10px;
+sgFramePickerFont: font(12px);
+sgFramePickerFontSelected: font(12px semibold);
+sgFramePickerCheckOuter: 9px;
+sgFramePickerCheckInner: 7px;
+sgFramePickerCheckLine: 2px;
+sgFramePickerCheckShift: 4px;
+sgFramePickerLockedOpacity: 0.4;
+sgFrameChipHeight: 30px;
+sgFrameChipSkip: 6px;
+sgFrameChipPadding: 12px;
+sgFrameChipDot: 12px;
+sgFrameChipDotSkip: 6px;
+sgFrameChipLine: 2px;
+sgFrameChipFont: font(13px);
+sgFrameChipFontSelected: font(13px semibold);
+sgFrameChipsPadding: margins(22px, 2px, 22px, 10px);
+sgFrameSliderPadding: margins(22px, 8px, 22px, 12px);
+
+// Support StaticGram box.
+sgSupporterIcon: 80px;
+sgSupporterIconPadding: margins(0px, 8px, 0px, 0px);
+sgSupporterTitle: FlatLabel(boxTitle) {
+	align: align(top);
+	minWidth: 200px;
+	maxHeight: 0px;
+}
+sgSupporterTitlePadding: margins(22px, 14px, 22px, 0px);
+sgSupporterText: FlatLabel(boxLabel) {
+	align: align(top);
+	minWidth: 200px;
+}
+sgSupporterTextPadding: margins(22px, 8px, 22px, 6px);
+sgSupporterFeatureTitle: FlatLabel(boxLabel) {
+	minWidth: 200px;
+	style: TextStyle(boxLabelStyle) {
+		font: font(boxFontSize semibold);
+	}
+}
+sgSupporterFeatureText: FlatLabel(boxLabel) {
+	minWidth: 200px;
+	textFg: windowSubTextFg;
+}
+sgSupporterFeaturePadding: margins(64px, 14px, 22px, 0px);
+sgSupporterFeatureTextSkip: 2px;
+sgSupporterFeatureIconLeft: 22px;
+sgSupporterFeatureIconTop: 2px;
+
+// Profile banner box.
+sgBannerPreviewPadding: margins(22px, 12px, 22px, 12px);
+sgBannerPreviewHeight: 150px;
+
+// Money: GRAM and Stars cards, transfers.
+sgMoneyCardsPadding: margins(16px, 4px, 16px, 0px);
+sgMoneyCardSkip: 12px;
+sgMoneyCardRadius: 18px;
+sgMoneyCardInner: margins(20px, 18px, 20px, 16px);
+sgMoneyCardLabelFont: font(13px semibold);
+sgMoneyCardBalanceFont: font(28px semibold);
+sgMoneyCardUnitFont: font(15px semibold);
+sgMoneyCardFiatFont: font(14px);
+sgMoneyCardHolderFont: font(12px semibold);
+sgMoneyCardNumberFont: font(14px);
+sgMoneyCardBalanceTop: 30px;
+sgMoneyCardFiatSkip: 2px;
+sgMoneyCardNumberSkip: 2px;
+sgMoneyDotsHeight: 22px;
+sgMoneyDotSize: 6px;
+sgMoneyDotSkip: 8px;
+sgMoneyButtonPadding: margins(16px, 8px, 16px, 4px);
+sgMoneyLinkPadding: margins(16px, 6px, 16px, 2px);
+sgMoneyTabsPadding: margins(10px, 10px, 10px, 0px);
+sgMoneyEmptyPadding: margins(22px, 24px, 22px, 24px);
+sgMoneyEmptyLabel: FlatLabel(defaultFlatLabel) {
+	align: align(top);
+	minWidth: 100px;
+	textFg: windowSubTextFg;
+}
+sgMoneyAboutLabel: FlatLabel(defaultFlatLabel) {
+	align: align(top);
+	minWidth: 100px;
+	textFg: windowSubTextFg;
+}
+sgMoneyAboutPadding: margins(22px, 8px, 22px, 4px);
+sgMoneyGiftsPadding: margins(16px, 12px, 16px, 12px);
+sgMoneyGiftsSkip: 10px;
+sgMoneyRecipientPadding: margins(22px, 6px, 22px, 10px);
+sgMoneyRecipientUserpic: UserpicButton(defaultUserpicButton) {
+	size: size(40px, 40px);
+	photoSize: 40px;
+}
+sgMoneyRecipientSkip: 12px;
+sgMoneyRecipientName: FlatLabel(defaultFlatLabel) {
+	minWidth: 100px;
+	maxHeight: 20px;
+	style: TextStyle(defaultTextStyle) {
+		font: font(15px semibold);
+	}
+}
+sgMoneyRecipientStatus: FlatLabel(defaultFlatLabel) {
+	minWidth: 100px;
+	maxHeight: 20px;
+	textFg: windowSubTextFg;
+}
+sgMoneyFieldPadding: margins(22px, 8px, 22px, 4px);
+sgMoneySubtitlePadding: margins(22px, 10px, 22px, 2px);
+sgMoneyCommentField: InputField(defaultInputField) {
+	heightMax: 120px;
+}

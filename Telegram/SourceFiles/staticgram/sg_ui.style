@@ -1,0 +1,60 @@
+/*
+This file is part of StaticGram Desktop, a fork of Telegram Desktop.
+
+For license and copyright information please follow this link:
+https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+*/
+using "ui/basic.style";
+using "ui/widgets/widgets.style";
+using "ui/layers/layers.style";
+
+// Transfer details box (a GRAM / Stars card in a chat clicked).
+sgTransferAmount: FlatLabel(defaultFlatLabel) {
+	minWidth: 120px;
+	align: align(top);
+	textFg: windowBoldFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(24px semibold);
+	}
+}
+sgTransferSubtitle: FlatLabel(defaultFlatLabel) {
+	minWidth: 120px;
+	align: align(top);
+	textFg: windowSubTextFg;
+}
+sgTransferCaption: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(12px);
+	}
+}
+sgTransferValue: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	maxHeight: 0px;
+}
+sgTransferIconSize: 64px;
+sgTransferIconPadding: margins(0px, 24px, 0px, 8px);
+sgTransferRowPadding: margins(16px, 10px, 16px, 10px);
+sgTransferRowSkip: 2px;
+
+// mokaGram-style cards in the StaticGram settings boxes.
+sgCardNote: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(12px);
+	}
+}
+sgCardTitle: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	textFg: windowActiveTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(13px semibold);
+	}
+}
+sgCardMainButton: RoundButton(defaultActiveButton) {
+	height: 44px;
+	textTop: 12px;
+	radius: 22px;
+}

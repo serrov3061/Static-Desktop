@@ -1,0 +1,816 @@
+/*
+This file is part of Telegram Desktop,
+the official desktop application for the Telegram messaging service.
+
+For license and copyright information please follow this link:
+https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+*/
+#include "settings/settings_builder.h"
+
+#include <array>
+#include <map>
+
+#include "apiwrap.h"
+#include "lang/lang_keys.h"
+#include "api/api_user_privacy.h"
+#include "boxes/edit_privacy_box.h"
+#include "main/main_session.h"
+#include "settings/settings_common.h"
+#include "settings/sections/settings_privacy_security.h"
+#include "ui/vertical_list.h"
+#include "mokagram/ui/mokagram_box_parts.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/checkbox.h"
+#include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout.h"
+#include "ui/wrap/padding_wrap.h"
+#include "ui/painter.h"
+#include "window/window_session_controller.h"
+#include "styles/style_settings.h"
+#include "styles/style_window.h"
+
+namespace Settings::Builder {
+
+namespace {
+
+// Mokagram: блок строк настроек как отдельная скруглённая карточка.
+constexpr auto kGroupRadius = 22;
+const auto kGroupMargins = style::margins(10, 5, 10, 5);
+constexpr auto kGroupInset = 4;
+
+[[nodiscard]] Ui::VerticalLayout *GroupOuter(
+		not_null<Ui::VerticalLayout*> container) {
+	const auto value = container->property("moka-group-outer");
+	return value.isValid()
+		? reinterpret_cast<Ui::VerticalLayout*>(value.value<quintptr>())
+		: nullptr;
+}
+
+// Скруглённые углы подсветки рисуем готовыми картинками: вычитание контуров
+// на каждый кадр (QPathClipper) заметно грузило процессор при анимации в шапке.
+struct CornerKey {
+	int radius = 0;
+	QRgb color = 0;
+	int ratio = 1;
+	friend inline auto operator<=>(const CornerKey&, const CornerKey&) = default;
+};
+[[nodiscard]] const std::array<QImage, 4> &CornerMasks(
+		int radius,
+		const QColor &color) {
+	static auto cache = std::map<CornerKey, std::array<QImage, 4>>();
+	const auto ratio = style::DevicePixelRatio();
+	const auto key = CornerKey{ radius, color.rgba(), ratio };
+	const auto i = cache.find(key);
+	if (i != cache.end()) {
+		return i->second;
+	}
+	if (cache.size() > 16) {
+		cache.clear();
+	}
+	auto top = QImage(
+		QSize(radius, radius) * ratio,
+		QImage::Format_ARGB32_Premultiplied);
+	top.setDevicePixelRatio(ratio);
+	top.fill(Qt::transparent);
+	{
+		// Левый верхний угол: квадрат без четверти круга.
+		auto q = QPainter(&top);
+		q.setRenderHint(QPainter::Antialiasing);
+		auto path = QPainterPath();
+		path.addRect(QRectF(0, 0, radius, radius));
+		auto circle = QPainterPath();
+		circle.addEllipse(QRectF(0, 0, 2 * radius, 2 * radius));
+		q.fillPath(path.subtracted(circle), color);
+	}
+	auto result = std::array<QImage, 4>{
+		top,
+		top.mirrored(true, false),
+		top.mirrored(false, true),
+		top.mirrored(true, true),
+	};
+	return cache.emplace(key, std::move(result)).first->second;
+}
+
+[[nodiscard]] not_null<Ui::VerticalLayout*> BeginGroup(
+		not_null<Ui::VerticalLayout*> outer,
+		style::color outerBg = st::dialogsBg) {
+	const auto pad = outer->add(
+		object_ptr<Ui::PaddingWrap<Ui::VerticalLayout>>(
+			outer,
+			object_ptr<Ui::VerticalLayout>(outer),
+			kGroupMargins + style::margins(
+				kGroupInset,
+				kGroupInset,
+				kGroupInset,
+				kGroupInset)));
+	const auto inner = pad->entity();
+	inner->setProperty(
+		"moka-group-outer",
+		QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(outer.get())));
+
+	struct Segment {
+		int top = 0;
+		int bottom = 0;
+	};
+	// Карточка режется на куски заголовками и разделителями: между кусками
+	// виден фон страницы, как между карточками в «Кастомизации».
+	const auto segments = [=] {
+		auto cuts = std::vector<std::pair<int, int>>();
+		for (const auto child : pad->findChildren<QWidget*>()) {
+			const auto title = child->property("moka-title").toBool();
+			if (!title && !child->property("moka-break").toBool()) {
+				continue;
+			}
+			if (!child->isVisibleTo(pad) || !child->height()) {
+				continue;
+			}
+			const auto top = child->mapTo(pad, QPoint()).y();
+			cuts.emplace_back(
+				top - (title ? 14 : 0),
+				top + child->height() + (title ? 6 : 0));
+		}
+		std::sort(cuts.begin(), cuts.end());
+		const auto card = pad->rect() - kGroupMargins;
+		auto result = std::vector<Segment>();
+		auto from = card.y();
+		const auto flush = [&](int to) {
+			if (to - from >= 30) {
+				result.push_back({ from, to });
+			}
+		};
+		for (const auto &cut : cuts) {
+			if (cut.first > from) {
+				flush(std::min(cut.first, card.y() + card.height()));
+			}
+			from = std::max(from, cut.second);
+		}
+		flush(card.y() + card.height());
+		return result;
+	};
+
+	pad->paintRequest(
+	) | rpl::on_next([=](QRect clip) {
+		auto p = QPainter(pad);
+		p.fillRect(clip, outerBg);
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBg);
+		const auto card = pad->rect() - kGroupMargins;
+		for (const auto &seg : segments()) {
+			const auto height = seg.bottom - seg.top;
+			const auto r = std::min(kGroupRadius, height / 2);
+			p.drawRoundedRect(
+				QRect(card.x(), seg.top, card.width(), height),
+				r,
+				r);
+		}
+	}, pad->lifetime());
+
+	// Поверх строк: срезаем квадратные углы подсветки у каждого куска.
+	const auto shape = Ui::CreateChild<Ui::RpWidget>(pad);
+	shape->setAttribute(Qt::WA_TransparentForMouseEvents);
+	shape->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(shape);
+		auto hq = PainterHighQualityEnabler(p);
+		const auto card = pad->rect() - kGroupMargins;
+		for (const auto &seg : segments()) {
+			const auto height = seg.bottom - seg.top;
+			const auto r = std::min(kGroupRadius, height / 2);
+			if (r < 1) {
+				continue;
+			}
+			const auto &masks = CornerMasks(r, outerBg->c);
+			for (const auto right : { false, true }) {
+				for (const auto bottom : { false, true }) {
+					const auto x = right ? (card.x() + card.width() - r) : card.x();
+					const auto y = bottom ? (seg.bottom - r) : seg.top;
+					p.drawImage(
+						QRectF(x, y, r, r),
+						masks[(right ? 1 : 0) + (bottom ? 2 : 0)]);
+				}
+			}
+		}
+	}, shape->lifetime());
+
+	pad->sizeValue(
+	) | rpl::on_next([=](QSize size) {
+		shape->setGeometry(QRect(QPoint(), size));
+		shape->raise();
+		shape->update();
+		pad->update();
+	}, pad->lifetime());
+	inner->heightValue(
+	) | rpl::on_next([=](int) {
+		shape->update();
+		pad->update();
+	}, pad->lifetime());
+	return inner;
+}
+
+} // namespace
+namespace {
+
+[[nodiscard]] QString ResolveTitle(rpl::producer<QString> title) {
+	auto result = QString();
+	auto lifetime = rpl::lifetime();
+	std::move(title).start(
+		[&](QString value) { result = std::move(value); },
+		[](auto&&) {},
+		[] {},
+		lifetime);
+	return result;
+}
+
+} // namespace
+
+BuildHelper::BuildHelper(
+	SectionMeta &&meta,
+	FnMut<void(SectionBuilder&)> method)
+: build([=](
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller,
+		Fn<void(Type)> showOther,
+		rpl::producer<> showFinished) {
+	auto &lifetime = container->lifetime();
+	const auto highlights = lifetime.make_state<HighlightRegistry>();
+	const auto isPaused = Window::PausedIn(
+		controller,
+		Window::GifPauseReason::Layer);
+	auto builder = SectionBuilder(WidgetContext{
+		.container = static_cast<Ui::VerticalLayout*>(
+			container->add(object_ptr<Ui::OverrideMargins>(
+				container,
+				object_ptr<Ui::VerticalLayout>(container)))->entity()),
+		.controller = controller,
+		.showOther = std::move(showOther),
+		.isPaused = isPaused,
+		.highlights = highlights,
+	});
+	_method(builder);
+
+	std::move(showFinished) | rpl::on_next([=] {
+		for (const auto &[id, entry] : *highlights) {
+			if (entry.widget) {
+				controller->checkHighlightControl(
+					id,
+					entry.widget,
+					base::duplicate(entry.args));
+			}
+		}
+	}, lifetime);
+})
+, _meta(std::move(meta))
+, _method(std::move(method)) {
+	Expects(_method != nullptr);
+
+	SearchRegistry::Instance().add(
+		&_meta,
+		[=](not_null<::Main::Session*> session) { return index(session); });
+}
+
+SearchRegistry &SearchRegistry::Instance() {
+	static SearchRegistry instance;
+	return instance;
+}
+
+void SearchRegistry::add(
+		not_null<const SectionMeta*> meta,
+		SearchEntriesIndexer indexer) {
+	_sections[meta->id] = meta;
+	_indexers.push_back({ meta->id, std::move(indexer) });
+}
+
+std::vector<SearchEntry> SearchRegistry::collectAll(
+		not_null<Main::Session*> session) const {
+	auto result = std::vector<SearchEntry>();
+	for (const auto &[sectionId, meta] : _sections) {
+		if (meta->parentId) {
+			result.push_back({
+				.title = (*meta->title)(tr::now),
+				.section = sectionId,
+				.icon = { meta->icon },
+			});
+		}
+	}
+	for (const auto &entry : _indexers) {
+		auto entries = entry.indexer(session);
+		result.insert(result.end(), entries.begin(), entries.end());
+	}
+	return result;
+}
+
+QString SearchRegistry::sectionTitle(Type sectionId) const {
+	const auto it = _sections.find(sectionId);
+	return (it != _sections.end()) ? (*it->second->title)(tr::now) : QString();
+}
+
+QString SearchRegistry::sectionPath(Type sectionId, bool parentsOnly) const {
+	auto parts = QStringList();
+	auto current = sectionId;
+	while (current) {
+		if (const auto title = sectionTitle(current); !title.isEmpty()) {
+			parts.prepend(title);
+		}
+		const auto it = _sections.find(current);
+		current = (it != _sections.end()) ? it->second->parentId : nullptr;
+	}
+	if (parts.size() > 1 && parentsOnly) {
+		parts.pop_back();
+	}
+	return parts.join(u" > "_q);
+}
+
+std::vector<SearchEntry> BuildHelper::index(
+		not_null<Main::Session*> session) const {
+	auto entries = std::vector<SearchEntry>();
+	auto builder = SectionBuilder(SearchContext{
+		.sectionId = _meta.id,
+		.session = session,
+		.entries = &entries,
+	});
+	_method(builder);
+	for (auto &entry : entries) {
+		if (!entry.section) {
+			entry.section = _meta.id;
+		}
+	}
+	return entries;
+}
+
+SectionBuilder::SectionBuilder(BuildContext context)
+: _context(std::move(context)) {
+}
+
+namespace {
+// Пустая карточка (после addDivider перед заголовком) не нужна: прячем её.
+void HideEmptyGroup(not_null<Ui::VerticalLayout*> container) {
+	if (GroupOuter(container) && container->count() == 0) {
+		if (const auto pad = container->parentWidget()) {
+			pad->hide();
+		}
+	}
+}
+
+// Mokagram: заголовок раздела стоит над карточкой серой заглавной надписью,
+// как в «Кастомизации», а под ним начинается новая карточка.
+not_null<Ui::FlatLabel*> MakeOuterTitle(
+		not_null<Ui::VerticalLayout*> outer,
+		rpl::producer<QString> text) {
+	static const auto st = [] {
+		auto value = st::boxDividerLabel;
+		value.minWidth = 1;
+		value.style.font = st::semiboldFont;
+		return value;
+	}();
+	return outer->add(
+		object_ptr<Ui::FlatLabel>(
+			outer,
+			std::move(text) | rpl::map([](QString value) {
+				return value.toUpper();
+			}),
+			st),
+		style::margins(26, 4, 26, 4));
+}
+
+// Mokagram: любая строка вне карточки (после текста-пояснения или в начале
+// страницы) сама открывает новую карточку, чтобы не было квадратных углов.
+[[nodiscard]] bool InsideGroup(not_null<Ui::VerticalLayout*> container) {
+	for (QWidget *w = container; w; w = w->parentWidget()) {
+		if (w->property("moka-group-outer").isValid()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void EnsureGroup(BuildContext &context) {
+	if (const auto wctx = std::get_if<WidgetContext>(&context)) {
+		if (!InsideGroup(wctx->container)) {
+			wctx->container = BeginGroup(wctx->container);
+		}
+	}
+}
+
+} // namespace
+
+void SectionBuilder::add(FnMut<void(const BuildContext &ctx)> method) {
+	Expects(method != nullptr);
+
+	EnsureGroup(_context);
+	method(_context);
+}
+
+Ui::VerticalLayout *SectionBuilder::scope(
+		FnMut<void()> method,
+		rpl::producer<bool> shown,
+		FnMut<void(ToggledScopePtr)> hook) {
+	auto result = (Ui::VerticalLayout*)nullptr;
+	v::match(_context, [&](WidgetContext &wctx) {
+		const auto outer = wctx.container;
+		const auto toggled = (shown || hook);
+		const auto wrap = toggled
+			? outer->add(
+				object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+					outer,
+					object_ptr<Ui::VerticalLayout>(outer)))
+			: nullptr;
+		const auto inner = wrap
+			? wrap->entity()
+			: outer->add(object_ptr<Ui::VerticalLayout>(outer));
+		wctx.container = inner;
+		method();
+		if (shown) {
+			wrap->toggleOn(std::move(shown));
+			wrap->finishAnimating();
+		}
+		if (hook) {
+			hook(wrap);
+		}
+		wctx.container = outer;
+		result = inner;
+	}, [&](const SearchContext &sctx) {
+		method();
+	});
+	return result;
+}
+
+Ui::RpWidget *SectionBuilder::add(
+		FnMut<WidgetToAdd(const WidgetContext &ctx)> widget,
+		FnMut<SearchEntry()> search) {
+	auto result = (Ui::RpWidget*)nullptr;
+	add([&](const BuildContext &ctx) {
+		v::match(ctx, [&](const WidgetContext &wctx) {
+			if (auto w = widget ? widget(wctx) : WidgetToAdd()) {
+				result = w.widget.data();
+				wctx.container->add(std::move(w.widget), w.margin, w.align);
+
+				if (auto entry = search ? search() : SearchEntry()) {
+					if (wctx.highlights) {
+						wctx.highlights->push_back({
+							std::move(entry.id),
+							{ result, std::move(w.highlight) },
+						});
+					}
+				}
+			}
+		}, [&](const SearchContext &sctx) {
+			if (auto entry = search ? search() : SearchEntry()) {
+				entry.section = sctx.sectionId;
+				sctx.entries->push_back(std::move(entry));
+			}
+		});
+	});
+	return result;
+}
+
+Ui::RpWidget *SectionBuilder::addControl(ControlArgs &&args) {
+	if (auto shown = base::take(args.shown)) {
+		auto result = (Ui::RpWidget*)nullptr;
+		scope([&] {
+			result = addControl(std::move(args));
+		}, std::move(shown));
+		return result;
+	}
+	return add([&](const WidgetContext &ctx) {
+		return WidgetToAdd{
+			.widget = args.factory ? args.factory(ctx.container) : nullptr,
+			.margin = args.margin,
+			.align = args.align,
+			.highlight = std::move(args.highlight),
+		};
+	}, [&]() mutable {
+		return SearchEntry{
+			.id = std::move(args.id),
+			.title = ResolveTitle(std::move(args.title)),
+			.keywords = std::move(args.keywords),
+			.icon = std::move(args.searchIcon),
+			.checkIcon = args.searchCheckIcon,
+		};
+	});
+}
+
+Ui::SettingsButton *SectionBuilder::addButton(ButtonArgs &&args) {
+	EnsureGroup(_context);
+	const auto &st = args.st ? *args.st : st::settingsButton;
+	auto iconForSearch = IconDescriptor{ args.icon.icon };
+	const auto navigates = bool(args.onClick) && !args.label && !args.toggled && args.id != u"main/faq"_q;
+	const auto factory = [&](not_null<Ui::VerticalLayout*> container) {
+		auto button = CreateButtonWithIcon(
+			args.container ? args.container : container.get(),
+			rpl::duplicate(args.title),
+			st,
+			std::move(args.icon));
+		if (button && args.onClick) {
+			button->addClickHandler(std::move(args.onClick));
+		}
+		if (args.label) {
+			CreateRightLabel(
+				button.data(),
+				std::move(args.label),
+				st,
+				rpl::duplicate(args.title));
+		}
+		if (args.toggled) {
+			button->toggleOn(std::move(args.toggled));
+		}
+		Mokagram::BoxParts::MakePill(
+			button.data(),
+			[] { return st::windowBg->c; });
+		if (navigates) {
+			// Mokagram: стрелка справа, как в настройках macOS.
+			const auto chevron = Ui::CreateChild<Ui::RpWidget>(button.data());
+			chevron->setAttribute(Qt::WA_TransparentForMouseEvents);
+			chevron->resize(10, 14);
+			chevron->paintRequest(
+			) | rpl::on_next([=] {
+				auto p = QPainter(chevron);
+				auto hq = PainterHighQualityEnabler(p);
+				auto pen = QPen(st::windowSubTextFg->c, 1.6);
+				pen.setCapStyle(Qt::RoundCap);
+				pen.setJoinStyle(Qt::RoundJoin);
+				p.setPen(pen);
+				p.drawPolyline(QPolygonF({
+					QPointF(2, 2),
+					QPointF(8, 7),
+					QPointF(2, 12),
+				}));
+			}, chevron->lifetime());
+			button->sizeValue(
+			) | rpl::on_next([=](QSize size) {
+				chevron->move(
+					size.width() - 18 - chevron->width(),
+					(size.height() - chevron->height()) / 2);
+			}, chevron->lifetime());
+
+		}
+		return button;
+	};
+	return static_cast<Ui::SettingsButton*>(addControl({
+		.factory = factory,
+		.id = std::move(args.id),
+		.title = rpl::duplicate(args.title),
+		.highlight = std::move(args.highlight),
+		.shown = std::move(args.shown),
+
+		.keywords = std::move(args.keywords),
+		.searchIcon = std::move(iconForSearch),
+	}));
+}
+
+Ui::SettingsButton *SectionBuilder::addSectionButton(SectionArgs &&args) {
+	const auto wctx = std::get_if<WidgetContext>(&_context);
+	const auto showOther = wctx ? wctx->showOther : nullptr;
+	const auto target = args.targetSection;
+	return addButton({
+		.title = std::move(args.title),
+		.icon = std::move(args.icon),
+		.onClick = [=] { showOther(target); },
+		.keywords = std::move(args.keywords),
+	});
+}
+
+void SectionBuilder::addDivider() {
+	v::match(_context, [&](WidgetContext &ctx) {
+		// Mokagram: вместо полосы-разделителя заканчивается карточка, следующая
+		// строка сама откроет новую (иначе остаются пустые полоски).
+		if (const auto parent = GroupOuter(ctx.container)) {
+			// Отступ в самом конце карточки даёт лишнее место под строкой.
+			for (auto i = ctx.container->count(); i--;) {
+				const auto widget = ctx.container->widgetAt(i);
+				if (!widget->property("moka-skip").toBool()) {
+					break;
+				}
+				widget->resize(widget->width(), 0);
+			}
+			ctx.container = parent;
+		}
+	}, [](const SearchContext &) {
+	});
+}
+
+void SectionBuilder::addSkip() {
+	v::match(_context, [&](const WidgetContext &ctx) {
+		if (InsideGroup(ctx.container)) {
+			const auto skip = ctx.container->add(
+				object_ptr<Ui::FixedHeightWidget>(
+					ctx.container,
+					st::defaultVerticalListSkip));
+			skip->setProperty("moka-skip", true);
+		}
+	}, [](const SearchContext &) {
+	});
+}
+
+void SectionBuilder::addSkip(int height) {
+	v::match(_context, [&](const WidgetContext &ctx) {
+		if (InsideGroup(ctx.container)) {
+			const auto skip = ctx.container->add(
+				object_ptr<Ui::FixedHeightWidget>(ctx.container, height));
+			skip->setProperty("moka-skip", true);
+		}
+	}, [](const SearchContext &) {
+	});
+}
+
+void SectionBuilder::addDividerText(rpl::producer<QString> text) {
+	v::match(_context, [&](WidgetContext &ctx) {
+		auto outer = ctx.container;
+		if (const auto parent = GroupOuter(outer)) {
+			outer = parent;
+			ctx.container = outer;
+		}
+		Ui::AddDividerText(outer, std::move(text));
+	}, [](const SearchContext &) {
+	});
+}
+
+Ui::SettingsButton *SectionBuilder::addPremiumButton(PremiumButtonArgs &&args) {
+	const auto result = addButton({
+		.id = std::move(args.id),
+		.title = std::move(args.title),
+		.label = std::move(args.label),
+		.onClick = std::move(args.onClick),
+		.keywords = std::move(args.keywords),
+	});
+	if (result) {
+		AddPremiumStar(
+			result,
+			args.credits,
+			v::get<WidgetContext>(_context).isPaused);
+	}
+	return result;
+}
+
+Ui::SettingsButton *SectionBuilder::addPrivacyButton(PrivacyButtonArgs &&args) {
+	const auto controller = this->controller();
+	const auto session = this->session();
+
+	const auto button = addButton({
+		.id = args.id,
+		.title = rpl::duplicate(args.title),
+		.st = &st::settingsButtonNoIcon,
+		.label = PrivacyButtonLabel(session, args.key),
+		.keywords = args.keywords,
+	});
+	if (button) {
+		const auto id = args.id;
+		const auto premium = args.premium;
+		const auto shower = Ui::CreateChild<rpl::lifetime>(button);
+		const auto factory = args.controllerFactory;
+		button->addClickHandler([=, key = args.key] {
+			*shower = session->api().userPrivacy().value(
+				key
+			) | rpl::take(
+				1
+			) | rpl::on_next(crl::guard(controller, [=](
+					const Api::UserPrivacy::Rule &value) {
+				controller->show(Box<EditPrivacyBox>(
+					controller,
+					factory(),
+					value));
+			}));
+		});
+		if (premium) {
+			AddPrivacyPremiumStar(
+				button,
+				session,
+				std::move(args.title),
+				st::settingsButtonNoIcon.padding);
+		}
+	}
+	return button;
+}
+
+Ui::Checkbox *SectionBuilder::addCheckbox(CheckboxArgs &&args) {
+	EnsureGroup(_context);
+	const auto factory = [&](not_null<Ui::VerticalLayout*> container) {
+		return object_ptr<Ui::Checkbox>(
+			container,
+			ResolveTitle(rpl::duplicate(args.title)),
+			args.checked,
+			st::settingsCheckbox);
+	};
+	return static_cast<Ui::Checkbox*>(addControl({
+		.factory = factory,
+		.id = std::move(args.id),
+		.title = rpl::duplicate(args.title),
+		.margin = st::settingsCheckboxPadding,
+		.highlight = std::move(args.highlight),
+		.shown = std::move(args.shown),
+		.keywords = std::move(args.keywords),
+		.searchCheckIcon = (args.checked
+			? SearchEntryCheckIcon::Checked
+			: SearchEntryCheckIcon::Unchecked),
+	}));
+}
+
+void SectionBuilder::addSubsectionTitle(SubsectionTitleArgs &&args) {
+	v::match(_context, [&](WidgetContext &ctx) {
+		auto outer = ctx.container;
+		HideEmptyGroup(outer);
+		if (const auto parent = GroupOuter(outer)) {
+			outer = parent;
+		}
+		const auto title = MakeOuterTitle(outer, rpl::duplicate(args.title));
+		ctx.container = BeginGroup(outer);
+		if (!args.id.isEmpty() && ctx.highlights) {
+			ctx.highlights->push_back({
+				args.id,
+				{ title.get(), SubsectionTitleHighlight() },
+			});
+		}
+	}, [&](const SearchContext &ctx) {
+		if (!args.id.isEmpty()) {
+			ctx.entries->push_back({
+				.id = std::move(args.id),
+				.title = ResolveTitle(std::move(args.title)),
+				.keywords = std::move(args.keywords),
+				.section = ctx.sectionId,
+			});
+		}
+	});
+}
+
+void SectionBuilder::addSubsectionTitle(rpl::producer<QString> text) {
+	v::match(_context, [&](WidgetContext &ctx) {
+		auto outer = ctx.container;
+		HideEmptyGroup(outer);
+		if (const auto parent = GroupOuter(outer)) {
+			outer = parent;
+		}
+		MakeOuterTitle(outer, std::move(text));
+		ctx.container = BeginGroup(outer);
+	}, [](const SearchContext &) {
+	});
+}
+
+Ui::VerticalLayout *SectionBuilder::container() const {
+	return v::match(_context, [](const WidgetContext &ctx) {
+		return ctx.container.get();
+	}, [](const SearchContext &) -> Ui::VerticalLayout* {
+		return nullptr;
+	});
+}
+
+Window::SessionController *SectionBuilder::controller() const {
+	return v::match(_context, [](const WidgetContext &ctx) {
+		return ctx.controller.get();
+	}, [](const SearchContext &) -> Window::SessionController* {
+		return nullptr;
+	});
+}
+
+not_null<Main::Session*> SectionBuilder::session() const {
+	return v::match(_context, [](const WidgetContext &ctx) {
+		return &ctx.controller->session();
+	}, [](const SearchContext &ctx) {
+		return ctx.session.get();
+	});
+}
+
+Fn<void(Type)> SectionBuilder::showOther() const {
+	return v::match(_context, [](const WidgetContext &ctx) {
+		return ctx.showOther;
+	}, [](const SearchContext &) -> Fn<void(Type)> {
+		return nullptr;
+	});
+}
+
+HighlightRegistry *SectionBuilder::highlights() const {
+	return v::match(_context, [](const WidgetContext &ctx) {
+		return ctx.highlights;
+	}, [](const SearchContext &) -> HighlightRegistry* {
+		return nullptr;
+	});
+}
+
+void SectionBuilder::registerHighlight(
+		QString id,
+		QWidget *widget,
+		HighlightArgs &&args) {
+	v::match(_context, [&](const WidgetContext &ctx) {
+		if (ctx.highlights && widget) {
+			ctx.highlights->push_back({
+				std::move(id),
+				{ widget, std::move(args) },
+			});
+		}
+	}, [](const SearchContext &) {
+	});
+}
+
+
+not_null<Ui::VerticalLayout*> MokaCard(
+		not_null<Ui::VerticalLayout*> outer,
+		style::color outerBg) {
+	return BeginGroup(outer, outerBg);
+}
+
+not_null<Ui::FlatLabel*> MokaCardTitle(
+		not_null<Ui::VerticalLayout*> outer,
+		rpl::producer<QString> text) {
+	return MakeOuterTitle(outer, std::move(text));
+}
+
+} // namespace Settings::Builder
