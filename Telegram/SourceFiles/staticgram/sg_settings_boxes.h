@@ -14,6 +14,8 @@ namespace Window {
 class SessionController;
 } // namespace Window
 
+class PeerData;
+
 namespace StaticGram {
 
 // «exteraStatic badge» (Android BadgePreferencesActivity): preview, the
@@ -33,6 +35,12 @@ void ShowBannerBox(not_null<Window::SessionController*> controller);
 void ShowSupporterBox(
 	not_null<Window::SessionController*> controller,
 	bool fromBadgeBox = false);
+
+// Another user's (or chat's) badge clicked next to the name (Android
+// SupporterPeerSheet); one's own badge opens ShowBadgeBox.
+void ShowPeerBadgeBox(
+	not_null<Window::SessionController*> controller,
+	not_null<PeerData*> peer);
 
 [[nodiscard]] QString AvatarFrameName(const QString &style);
 [[nodiscard]] rpl::producer<QString> SelfAvatarFrameNameValue(

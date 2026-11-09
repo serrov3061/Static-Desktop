@@ -25,6 +25,7 @@ struct UserBadge {
 	QString text;
 	bool canChange = false; // A custom (or developer) badge.
 	bool developer = false;
+	int number = 0; // The supporter badge number, 0 when there is none.
 
 	explicit operator bool() const {
 		return documentId != 0;
@@ -84,6 +85,10 @@ void SyncBadgesOnProfileOpen();
 void UpdateLocalBadge(uint64 userId, DocumentId documentId, QString text);
 void UpdateLocalFrame(uint64 userId, std::optional<AvatarFrame> frame);
 void UpdateLocalBanner(uint64 userId, ProfileBanner banner);
+
+// After a badge transfer between two own accounts: the badge (with its
+// number) moves before the sync.
+void MoveLocalBadge(uint64 fromUserId, uint64 toUserId);
 
 // Whether frames may animate now (power saving, disabled animations).
 [[nodiscard]] bool AvatarFramesAnimated();

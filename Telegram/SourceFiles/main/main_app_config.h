@@ -59,6 +59,12 @@ public:
 	[[nodiscard]] rpl::producer<> refreshed() const;
 	[[nodiscard]] rpl::producer<> value() const;
 
+	// StaticGram: an array of objects (sg_official_proxies), each object's
+	// string and number values as strings. A JSON string holding such an
+	// array is accepted too.
+	[[nodiscard]] std::vector<base::flat_map<QString, QString>> getObjectArray(
+		const QString &key) const;
+
 	[[nodiscard]] bool newRequirePremiumFree() const;
 
 	[[nodiscard]] auto ignoredRestrictionReasons() const

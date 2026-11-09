@@ -16,6 +16,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "ui/chat/chat_style.h"
 
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+
 namespace Main {
 namespace {
 
@@ -494,6 +498,53 @@ base::flat_map<QString, QString> AppConfig::getStringMap(
 		}, [&](const auto &data) {
 			return std::move(fallback);
 		});
+	});
+}
+
+std::vector<base::flat_map<QString, QString>> AppConfig::getObjectArray(
+		const QString &key) const {
+	using Object = base::flat_map<QString, QString>;
+	return getValue(key, [&](const MTPJSONValue &value) {
+		auto result = std::vector<Object>();
+		value.match([&](const MTPDjsonArray &data) {
+			for (const auto &item : data.vvalue().v) {
+				if (item.type() != mtpc_jsonObject) {
+					continue;
+				}
+				auto object = Object();
+				for (const auto &entry : item.c_jsonObject().vvalue().v) {
+					const auto &fields = entry.data();
+					fields.vvalue().match([&](const MTPDjsonString &text) {
+						object.emplace(qs(fields.vkey()), qs(text.vvalue()));
+					}, [&](const MTPDjsonNumber &number) {
+						object.emplace(
+							qs(fields.vkey()),
+							QString::number(int64(number.vvalue().v)));
+					}, [](const auto &) {
+					});
+				}
+				result.push_back(std::move(object));
+			}
+		}, [&](const MTPDjsonString &text) {
+			const auto document = QJsonDocument::fromJson(
+				qs(text.vvalue()).toUtf8());
+			for (const auto &item : document.array()) {
+				const auto json = item.toObject();
+				auto object = Object();
+				for (auto i = json.begin(); i != json.end(); ++i) {
+					if (i.value().isString()) {
+						object.emplace(i.key(), i.value().toString());
+					} else if (i.value().isDouble()) {
+						object.emplace(
+							i.key(),
+							QString::number(int64(i.value().toDouble())));
+					}
+				}
+				result.push_back(std::move(object));
+			}
+		}, [](const auto &) {
+		});
+		return result;
 	});
 }
 

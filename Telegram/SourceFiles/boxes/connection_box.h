@@ -78,6 +78,7 @@ public:
 		bool web = false;
 		bool canOpenBrowser = false;
 		ItemState state = ItemState::Checking;
+		bool official = false; // StaticGram: one of our proxies.
 
 	};
 
@@ -99,6 +100,8 @@ public:
 
 	[[nodiscard]] bool contains(const ProxyData &proxy) const;
 	void addNewItem(const ProxyData &proxy);
+	// StaticGram: an official proxy tapped, connect to it.
+	void addOrApplyItem(const ProxyData &proxy);
 
 	rpl::producer<ItemView> views() const;
 

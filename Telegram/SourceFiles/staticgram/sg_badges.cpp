@@ -52,7 +52,8 @@ struct UserProfile {
 		return (a.badge.documentId == b.badge.documentId)
 			&& (a.badge.text == b.badge.text)
 			&& (a.badge.canChange == b.badge.canChange)
-			&& (a.badge.developer == b.badge.developer);
+			&& (a.badge.developer == b.badge.developer)
+			&& (a.badge.number == b.badge.number);
 	}
 	friend inline bool operator!=(
 			const UserProfile &a,
@@ -80,6 +81,7 @@ public:
 	void updateLocalBadge(uint64 userId, DocumentId id, QString text);
 	void updateLocalFrame(uint64 userId, std::optional<AvatarFrame> frame);
 	void updateLocalBanner(uint64 userId, ProfileBanner banner);
+	void moveLocalBadge(uint64 fromUserId, uint64 toUserId);
 	void notify();
 
 private:
@@ -174,13 +176,18 @@ std::optional<bool> Store::apply(const QByteArray &data) {
 			if (chat) {
 				chatBadges.insert(bare, documentId);
 			} else {
+				const auto status = profile.value(u"status"_q).toString();
+				// Android BadgesController.getNumber: supporters only.
+				const auto supporter = (status == u"SUPPORTER"_q)
+					|| (status == u"DEVELOPER"_q);
+				const auto number = profile.value(u"number"_q).toInt();
 				users.insert(bare, UserProfile{ UserBadge{
 					.documentId = documentId,
 					.text = badge.value(u"text"_q).toString(),
 					.canChange = profile.value(
 						u"canChangeBadge"_q).toBool(),
-					.developer = (profile.value(
-						u"status"_q).toString() == u"DEVELOPER"_q),
+					.developer = (status == u"DEVELOPER"_q),
+					.number = (supporter && number > 0) ? number : 0,
 				} });
 			}
 		}
@@ -359,6 +366,18 @@ void Store::updateLocalBanner(uint64 userId, ProfileBanner banner) {
 	notify();
 }
 
+void Store::moveLocalBadge(uint64 fromUserId, uint64 toUserId) {
+	const auto i = _users.constFind(fromUserId);
+	if (i == _users.cend() || fromUserId == toUserId) {
+		return;
+	}
+	auto profile = i.value();
+	_users.remove(fromUserId);
+	_users.insert(toUserId, std::move(profile));
+	_etag = QByteArray();
+	notify();
+}
+
 ProfileBanner Store::banner(uint64 userId) {
 	refreshIfNeeded();
 	return _banners.value(userId);
@@ -453,6 +472,10 @@ void UpdateLocalFrame(uint64 userId, std::optional<AvatarFrame> frame) {
 
 void UpdateLocalBanner(uint64 userId, ProfileBanner banner) {
 	Instance().updateLocalBanner(userId, std::move(banner));
+}
+
+void MoveLocalBadge(uint64 fromUserId, uint64 toUserId) {
+	Instance().moveLocalBadge(fromUserId, toUserId);
 }
 
 bool AvatarFramesAnimated() {

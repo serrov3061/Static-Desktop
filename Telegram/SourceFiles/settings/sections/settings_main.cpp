@@ -48,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "settings/settings_builder.h"
+#include "staticgram/sg_domains.h"
 #include "staticgram/sg_money.h"
 #include "staticgram/sg_settings_boxes.h"
 #include "settings/cloud_password/settings_cloud_password_input.h"
@@ -558,6 +559,15 @@ void BuildStaticGramSection(SectionBuilder &builder) {
 			u"wallet"_q,
 			u"transfer"_q,
 		},
+	});
+
+	// p-misc: .ton domains (Android: a row of the Money screen).
+	builder.addButton({
+		.id = u"main/sg-domains"_q,
+		.title = tr::lng_sg_dns_title(),
+		.icon = { &st::menuIconLink },
+		.onClick = [=] { StaticGram::Domains::ShowDomainsBox(controller); },
+		.keywords = { u"ton"_q, u"domain"_q, u"dns"_q, u"name"_q },
 	});
 
 	builder.addButton({

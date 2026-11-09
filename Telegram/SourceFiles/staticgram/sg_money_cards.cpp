@@ -56,6 +56,10 @@ struct StockLook {
 
 } // namespace
 
+int CardHeight(int width) {
+	return int(std::round(width * kCardRatio));
+}
+
 int IndexByKind(Kind kind) {
 	return (kind == Kind::Stars) ? 1 : 0;
 }
@@ -113,32 +117,38 @@ void CardFace::setCard(const Card *card) {
 	if (card) {
 		_balance = card->balance;
 	}
-	const auto same = [&] {
-		static const auto kEmpty = std::vector<CardSticker>();
-		const auto &now = card ? card->stickers : kEmpty;
+	static const auto kEmpty = std::vector<CardSticker>();
+	const auto &now = card ? card->stickers : kEmpty;
+	const auto sameDocuments = [&] {
 		if (now.size() != _stickers.size()) {
 			return false;
 		}
 		for (auto i = 0, count = int(now.size()); i != count; ++i) {
-			const auto &a = now[i];
-			const auto &b = _stickers[i]->info;
-			if (a.document != b.document
-				|| a.x != b.x
-				|| a.y != b.y
-				|| a.scale != b.scale
-				|| a.rotation != b.rotation) {
+			if (now[i].document != _stickers[i]->info.document) {
 				return false;
 			}
 		}
 		return true;
 	}();
-	if (same) {
+	if (sameDocuments) {
+		// Only the placement changed (the editor moves them): keep the
+		// loaded players.
+		for (auto i = 0, count = int(now.size()); i != count; ++i) {
+			_stickers[i]->info = now[i];
+		}
 		_repaint();
 		return;
 	}
-	_stickers.clear();
-	if (card) {
-		for (const auto &info : card->stickers) {
+	auto was = base::take(_stickers);
+	for (const auto &info : now) {
+		const auto i = ranges::find_if(was, [&](const auto &sticker) {
+			return sticker && (sticker->info.document == info.document);
+		});
+		if (i != end(was)) {
+			auto reused = std::move(*i);
+			reused->info = info;
+			_stickers.push_back(std::move(reused));
+		} else {
 			_stickers.push_back(std::make_unique<Sticker>(Sticker{
 				.info = info,
 			}));

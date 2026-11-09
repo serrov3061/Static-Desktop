@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_premium.h" // Api::FromTL.
 #include "apiwrap.h"
 #include "base/random.h"
+#include "core/application.h"
+#include "core/click_handler_types.h"
 #include "data/components/credits.h"
 #include "data/data_credits.h"
 #include "data/data_document.h"
@@ -21,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "ui/controls/ton_common.h" // TonAmountSeparator.
 #include "ui/text/format_values.h"
+#include "window/window_session_controller.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QJsonDocument>
@@ -119,21 +122,31 @@ void RequestGram(not_null<Main::Session*> session) {
 	return (value == int(Kind::Stars)) ? Kind::Stars : Kind::Gram;
 }
 
-[[nodiscard]] DocumentData *StickerDocument(
+struct ParsedSticker {
+	DocumentData *document = nullptr;
+	QString giftSlug;
+};
+
+[[nodiscard]] ParsedSticker StickerDocument(
 		not_null<Main::Session*> session,
 		const MTPDsgcard_sticker &data) {
 	if (const auto gift = data.vgift()) {
 		if (const auto parsed = Api::FromTL(session, *gift)) {
 			return parsed->unique
-				? parsed->unique->model.document.get()
-				: parsed->document.get();
+				? ParsedSticker{
+					parsed->unique->model.document.get(),
+					parsed->unique->slug,
+				}
+				: ParsedSticker{ parsed->document.get() };
 		}
 	} else if (const auto document = data.vdocument()) {
 		if (document->type() == mtpc_document) {
-			return session->data().processDocument(*document).get();
+			return {
+				session->data().processDocument(*document).get(),
+			};
 		}
 	}
-	return nullptr;
+	return {};
 }
 
 [[nodiscard]] Cards ParseCards(
@@ -161,16 +174,17 @@ void RequestGram(not_null<Main::Session*> session) {
 				break;
 			}
 			const auto &values = sticker.data();
-			const auto document = StickerDocument(session, values);
-			if (!document) {
+			const auto parsed = StickerDocument(session, values);
+			if (!parsed.document) {
 				continue;
 			}
 			entry.stickers.push_back({
-				.document = document,
+				.document = parsed.document,
 				.x = std::clamp(values.vx().v, 0., 1.),
 				.y = std::clamp(values.vy().v, 0., 1.),
 				.scale = std::clamp(values.vscale().v, 0.05, 1.),
 				.rotation = std::clamp(values.vrotation().v, -360., 360.),
+				.giftSlug = parsed.giftSlug,
 			});
 		}
 		const auto already = ranges::find(
@@ -516,6 +530,24 @@ QString ErrorText(const QString &type) {
 			QString::number(kMaxComment));
 	} else if (type == u"INPUT_REQUEST_INVALID"_q) {
 		return tr::lng_sg_money_error_amount(tr::now);
+	} else if (type == u"GRAM_EXTERNAL_ADDRESS_UNSUPPORTED"_q) {
+		return tr::lng_sg_money_external_unsupported(tr::now);
+	} else if (type == u"ADDRESS_INVALID"_q
+		|| type == u"WALLET_ADDRESS_INVALID"_q
+		|| type == u"GRAM_ADDRESS_INVALID"_q
+		|| type == u"TONDNS_ADDRESS_INVALID"_q) {
+		return tr::lng_sg_nft_invalid_address(tr::now);
+	} else if (type == u"WALLET_CARD_NOT_PURCHASED"_q) {
+		return tr::lng_sg_card_error_not_purchased(tr::now);
+	} else if (type == u"WALLET_CARD_STICKERS_TOO_MUCH"_q) {
+		return tr::lng_sg_card_error_too_many(
+			tr::now,
+			lt_max,
+			QString::number(kMaxStickers));
+	} else if (type == u"WALLET_CARD_STICKER_ANIMATED"_q) {
+		return tr::lng_sg_card_error_animated(tr::now);
+	} else if (type == u"WALLET_CARD_GIFT_INVALID"_q) {
+		return tr::lng_sg_card_error_gift(tr::now);
 	} else if (type.isEmpty() || type == u"INTERNAL"_q) {
 		return tr::lng_sg_money_error_unknown(tr::now);
 	}
@@ -536,16 +568,236 @@ void LoadNfts(
 			.next = qs(data.vnext_offset().value_or_empty()),
 		};
 		for (const auto &item : data.vitems().v) {
-			if (const auto gift = item.data().vgift()) {
+			const auto &fields = item.data();
+			auto entry = NftItem{
+				.address = qs(fields.vaddress()),
+				.name = qs(fields.vname().value_or_empty()),
+			};
+			if (const auto gift = fields.vgift()) {
 				if (auto parsed = Api::FromTL(session, *gift)) {
-					slice.gifts.push_back(std::move(*parsed));
+					if (parsed->unique) {
+						entry.gift = std::move(*parsed);
+					}
 				}
+			}
+			if (!entry.address.isEmpty()) {
+				slice.items.push_back(std::move(entry));
 			}
 		}
 		done(std::move(slice));
 	}).fail([=] {
 		fail();
 	}).send();
+}
+
+void SendToAddress(
+		not_null<Main::Session*> session,
+		const QString &address,
+		int64 amount,
+		const QString &comment,
+		const QString &requestKey,
+		Fn<void(SendResult)> done,
+		Fn<void(QString)> fail) {
+	session->api().request(MTPgramwallet_SendToAddress(
+		MTP_flags(0),
+		MTP_string(address.trimmed()),
+		MTP_long(amount),
+		MTP_string(comment),
+		MTP_string(requestKey)
+	)).done([=](const MTPgramwallet_Result &result) {
+		const auto &data = result.data();
+		RefreshBalances(session);
+		done({
+			.fee = int64(data.vfee().v),
+			.replayed = mtpIsTrue(data.vreplayed()),
+		});
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+bool LooksLikeAddress(const QString &text) {
+	static const auto raw = QRegularExpression(
+		u"^-?[0-9]+:[0-9a-fA-F]{64}$"_q);
+	static const auto friendly = QRegularExpression(
+		u"^[A-Za-z0-9_\\-+/]{48}$"_q);
+	const auto value = text.trimmed();
+	return raw.match(value).hasMatch() || friendly.match(value).hasMatch();
+}
+
+bool LooksLikeTonDomain(const QString &text) {
+	const auto value = text.trimmed();
+	return (value.size() > 4)
+		&& value.endsWith(u".ton"_q, Qt::CaseInsensitive)
+		&& !value.contains(QChar(' '));
+}
+
+QString ParseUsername(const QString &text) {
+	auto value = text.trimmed();
+	for (const auto &prefix : {
+			u"https://"_q,
+			u"http://"_q,
+			u"t.me/"_q,
+			u"telegram.me/"_q,
+			u"@"_q }) {
+		if (value.startsWith(prefix, Qt::CaseInsensitive)) {
+			value = value.mid(prefix.size());
+		}
+	}
+	static const auto username = QRegularExpression(
+		u"^[A-Za-z][A-Za-z0-9_]{2,31}$"_q);
+	return username.match(value).hasMatch() ? value : QString();
+}
+
+QString NewNftRequestKey() {
+	auto result = u"sgnft-"_q;
+	for (auto i = 0; i != 2; ++i) {
+		result += QString::number(
+			base::RandomValue<uint64>(),
+			16).rightJustified(16, QChar('0'));
+	}
+	return result;
+}
+
+void TransferNft(
+		not_null<Main::Session*> session,
+		const NftTransfer &transfer,
+		Fn<void()> done,
+		Fn<void(QString)> fail) {
+	using Flag = MTPgramwallet_TransferNft::Flag;
+	auto flags = MTPgramwallet_TransferNft::Flags(0);
+	if (transfer.toUser) {
+		flags |= Flag::f_to_user;
+	} else if (!transfer.toAddress.isEmpty()) {
+		flags |= Flag::f_to_address;
+	} else {
+		flags |= Flag::f_deposit_payload;
+	}
+	const auto key = transfer.requestKey.isEmpty()
+		? NewNftRequestKey()
+		: transfer.requestKey;
+	session->api().request(MTPgramwallet_TransferNft(
+		MTP_flags(flags),
+		MTP_string(transfer.nftAddress),
+		(transfer.toUser
+			? transfer.toUser->inputUser()
+			: MTP_inputUserEmpty()),
+		MTP_string(transfer.toAddress.trimmed()),
+		MTP_bytes(transfer.depositPayload),
+		MTP_string(key)
+	)).done([=](const MTPBool &result) {
+		if (mtpIsTrue(result)) {
+			done();
+		} else {
+			fail(QString());
+		}
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+void PrepareGiftDeposit(
+		not_null<Main::Session*> session,
+		const QString &slug,
+		Fn<void(QString nftAddress, QByteArray payload)> done,
+		Fn<void(QString)> fail) {
+	session->api().request(MTPpayments_DepositStarGift(
+		MTP_flags(0),
+		MTP_inputPeerSelf(),
+		MTP_string(slug)
+	)).done([=](const MTPpayments_StarGiftDepositPayload &result) {
+		const auto &data = result.data();
+		done(qs(data.vnft_address()), data.vpayload().v);
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+void LoadWalletAddress(
+		not_null<Main::Session*> session,
+		Fn<void(QString)> done) {
+	session->api().request(MTPwallet_GetState(
+	)).done([=](const MTPWalletState &result) {
+		result.match([&](const MTPDwalletState &data) {
+			done(qs(data.vaddress()));
+		}, [&](const MTPDwalletStateEmpty &) {
+			done(QString());
+		});
+	}).fail([=] {
+		done(QString());
+	}).send();
+}
+
+QString NftErrorText(const QString &type) {
+	if (type == u"NFT_REQUEST_KEY_CONFLICT"_q) {
+		return tr::lng_sg_nft_error_key_conflict(tr::now);
+	} else if (type == u"NFT_EXTERNAL_TRANSFER_UNAVAILABLE"_q) {
+		return tr::lng_sg_nft_error_external(tr::now);
+	} else if (type == u"STARGIFT_WITHDRAWAL_UNAVAILABLE"_q) {
+		return tr::lng_sg_nft_error_withdraw_unavailable(tr::now);
+	} else if (type == u"STARGIFT_EXPORT_TOO_EARLY"_q) {
+		return tr::lng_sg_nft_error_too_early(tr::now);
+	} else if (type == u"NFT_BUSY"_q) {
+		return tr::lng_sg_nft_error_busy(tr::now);
+	} else if (type == u"NFT_UNAVAILABLE"_q) {
+		return tr::lng_sg_nft_error_listed(tr::now);
+	} else if (type == u"NFT_INVALID"_q) {
+		return tr::lng_sg_nft_error_invalid(tr::now);
+	} else if (type == u"WALLET_UNAVAILABLE"_q) {
+		return tr::lng_sg_nft_error_wallet(tr::now);
+	} else if (type == u"USER_DISALLOWED_STARGIFTS"_q) {
+		return tr::lng_sg_nft_error_disallowed(tr::now);
+	}
+	return ErrorText(type);
+}
+
+void SaveCard(
+		not_null<Main::Session*> session,
+		Kind kind,
+		const QString &backgroundSlug,
+		const std::vector<CardSticker> &stickers,
+		Fn<void()> done,
+		Fn<void(QString)> fail) {
+	using StickerFlag = MTPDsgcard_inputSticker::Flag;
+	auto list = QVector<MTPsgcard_InputSticker>();
+	list.reserve(int(stickers.size()));
+	for (const auto &sticker : stickers) {
+		const auto gift = !sticker.giftSlug.isEmpty();
+		list.push_back(MTP_sgcard_inputSticker(
+			MTP_flags(gift
+				? StickerFlag::f_gift_slug
+				: StickerFlag::f_document),
+			MTP_string(sticker.giftSlug),
+			(gift
+				? MTP_inputDocumentEmpty()
+				: sticker.document->mtpInput()),
+			MTP_double(std::clamp(sticker.x, 0., 1.)),
+			MTP_double(std::clamp(sticker.y, 0., 1.)),
+			MTP_double(std::clamp(sticker.scale, 0.05, 1.)),
+			MTP_double(std::clamp(sticker.rotation, -180., 180.))));
+	}
+	using Flag = MTPsgcard_SaveCard::Flag;
+	session->api().request(MTPsgcard_SaveCard(
+		MTP_flags(backgroundSlug.isEmpty()
+			? Flag()
+			: Flag::f_background_slug),
+		MTP_int(int(kind)),
+		MTP_string(backgroundSlug),
+		MTP_vector<MTPsgcard_InputSticker>(std::move(list))
+	)).done([=] {
+		RefreshCards(session->user());
+		done();
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+void OpenCardsPurchase(not_null<Window::SessionController*> controller) {
+	Core::App().openLocalUrl(
+		u"sg://resolve?domain=StaticGramApp&start=wcard"_q,
+		QVariant::fromValue(ClickHandlerContext{
+			.sessionWindow = base::make_weak(controller),
+		}));
 }
 
 } // namespace StaticGram::Money

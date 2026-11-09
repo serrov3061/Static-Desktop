@@ -2320,8 +2320,19 @@ PRIVATE
     staticgram/sg_money_cards.h
     staticgram/sg_money_send.cpp
     staticgram/sg_money_send.h
+    # p-money2
+    staticgram/sg_money_editor.cpp
+    staticgram/sg_money_editor.h
+    staticgram/sg_money_nft.cpp
+    staticgram/sg_money_nft.h
     staticgram/sg_settings_boxes.cpp
     staticgram/sg_settings_boxes.h
+    # p-misc
+    staticgram/sg_domains.cpp
+    staticgram/sg_domains.h
+    staticgram/sg_proxies.cpp
+    staticgram/sg_proxies.h
+    # p-misc end
     ui/peer/video_userpic_player.cpp
     ui/peer/video_userpic_player.h
     wallet/wallet_address.cpp

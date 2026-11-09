@@ -2387,6 +2387,17 @@ sgcard.card#70632282 flags:# kind:int background:flags.0?StarGift stickers:Vecto
 sgcard.cards#81f8a95e flags:# purchased:flags.0?true cards:Vector<sgcard.Card> users:Vector<User> = sgcard.Cards;
 sgcard.starsResult#704a54d8 balance:long replayed:Bool = sgcard.StarsResult;
 sgcard.messageActionStarsTransfer#ff0e4d1d flags:# outgoing:flags.1?true stars:long transaction_id:string comment:flags.0?string = MessageAction;
+// StaticGram private .ton domains (gramsrv third_party/td/_schema tondns.tl).
+tondns.domainCheck#047ed8d9 name:string available:Bool price:long = tondns.DomainCheck;
+tondns.domain#dfce26f1 flags:# primary:flags.0?true minted:flags.1?true name:string item_address:string owner_address:string wallet_address:string price:long purchased_at:int = tondns.Domain;
+tondns.domains#a6625118 domains:Vector<tondns.Domain> = tondns.Domains;
+tondns.buyResult#40c947be domain:tondns.Domain balance:long replayed:Bool = tondns.BuyResult;
+tondns.resolved#2a6e17ca name:string address:string = tondns.Resolved;
+tondns.addressDomain#f8cd4a59 address:string domain:string = tondns.AddressDomain;
+tondns.addressDomains#ad91fd30 domains:Vector<tondns.AddressDomain> = tondns.AddressDomains;
+tondns.listing#286f28d8 name:string seller_id:long price:long item_address:string listed_at:int = tondns.Listing;
+tondns.listings#29ecf728 count:int listings:Vector<tondns.Listing> users:Vector<User> min_price:long max_price:long fee_percent:int = tondns.Listings;
+tondns.domainCheckEx#dddc5e96 flags:# available:flags.0?true name:string price:long listing:flags.1?tondns.Listing users:Vector<User> = tondns.DomainCheckEx;
 
 ---functions---
 
@@ -3286,5 +3297,18 @@ gramwallet.sendToAddress#f4fd69e6 flags:# address:string amount:long comment:str
 sgcard.getCards#a4ea727d user_id:InputUser = sgcard.Cards;
 sgcard.saveCard#68500e80 flags:# kind:int background_slug:flags.0?string stickers:Vector<sgcard.InputSticker> = sgcard.Card;
 sgcard.sendStars#a9341b5a user_id:InputUser amount:long comment:string request_key:string = sgcard.StarsResult;
+tondns.checkDomain#ce407588 name:string = tondns.DomainCheck;
+tondns.buyDomain#dfde8b00 name:string price:long request_key:string = tondns.BuyResult;
+tondns.getMyDomains#b1ba10e8 = tondns.Domains;
+tondns.setPrimaryDomain#d0551531 name:string = Bool;
+tondns.setWalletRecord#b5cb23b7 flags:# name:string address:flags.0?string = tondns.Domain;
+tondns.resolve#3465f9a6 name:string = tondns.Resolved;
+tondns.getDomainsForAddresses#6c81e48d addresses:Vector<string> = tondns.AddressDomains;
+tondns.checkDomainEx#38c639e7 name:string = tondns.DomainCheckEx;
+tondns.listForSale#e7f1f9ae name:string price:long = tondns.Listing;
+tondns.cancelSale#a4cdd903 name:string = Bool;
+tondns.buyListed#c2f511da name:string expected_price:long request_key:string = tondns.BuyResult;
+tondns.getListings#b4961c29 offset:int limit:int sort:string = tondns.Listings;
+tondns.getMyListings#ecf0d678 = tondns.Listings;
 
 // LAYER 232

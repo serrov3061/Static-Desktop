@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_message.h"
 
 #include "staticgram/sg_badges.h"
+#include "staticgram/sg_settings_boxes.h"
 
 #include "api/api_suggest_post.h"
 #include "api/api_transcribes.h"
@@ -4418,7 +4419,14 @@ void Message::ensureFromNameStatusLink(not_null<PeerData*> peer) const {
 	_fromNameStatus->link = std::make_shared<LambdaClickHandler>([=](
 			ClickContext context) {
 		const auto controller = ExtractController(context);
-		if (controller) {
+		if (!controller) {
+			return;
+		} else if (!peer->emojiStatusId()
+			&& StaticGram::BadgeDocumentId(peer)) {
+			// StaticGram: the exteraStatic badge shown in place of the
+			// emoji status opens the box about it.
+			StaticGram::ShowPeerBadgeBox(controller, peer);
+		} else {
 			Settings::ShowEmojiStatusPremium(controller, peer);
 		}
 	});

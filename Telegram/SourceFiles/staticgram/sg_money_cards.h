@@ -96,6 +96,8 @@ private:
 };
 
 [[nodiscard]] int IndexByKind(Kind kind);
+// The card face height for a width (the 0.6 card ratio).
+[[nodiscard]] int CardHeight(int width);
 [[nodiscard]] Kind KindByIndex(int index);
 
 } // namespace StaticGram::Money

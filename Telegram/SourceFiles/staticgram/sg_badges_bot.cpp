@@ -121,6 +121,9 @@ BadgesConfig ReadBadgesConfig(not_null<Main::Session*> session) {
 		.developerDocumentId = ConfigDocumentId(
 			session,
 			u"sg_badges_developer_document_id"_q),
+		.transfer = session->appConfig().get<bool>(
+			u"sg_badges_transfer"_q,
+			false),
 	};
 }
 

@@ -16,7 +16,8 @@ namespace StaticGram::Money {
 
 // Android SGSendMoneyView: the recipient, the amount (GRAM with 9 decimals
 // or whole Stars), an optional comment and one confirm button. Without a
-// recipient a users list is shown first.
+// recipient a users list is shown first; for GRAM it starts with «На
+// адрес» (a wallet address, a name.ton or a @username).
 void ShowSendMoney(
 	not_null<Window::SessionController*> controller,
 	Kind kind,

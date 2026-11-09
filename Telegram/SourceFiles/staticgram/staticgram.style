@@ -141,3 +141,19 @@ sgMoneySubtitlePadding: margins(22px, 10px, 22px, 2px);
 sgMoneyCommentField: InputField(defaultInputField) {
 	heightMax: 120px;
 }
+
+// p-money2
+sgMoneyAddressAboutPadding: margins(22px, 0px, 22px, 8px);
+sgCardEditorCardPadding: margins(16px, 8px, 16px, 4px);
+sgCardEditorHintPadding: margins(22px, 6px, 22px, 6px);
+sgCardEditorHandleSize: 16px;
+sgCardEditorStickerSize: 72px;
+sgCardEditorStickerSkip: 6px;
+sgCardEditorStickersPadding: margins(12px, 8px, 12px, 12px);
+sgCardPromoTitle: FlatLabel(defaultFlatLabel) {
+	align: align(top);
+	minWidth: 100px;
+	style: TextStyle(defaultTextStyle) {
+		font: font(20px semibold);
+	}
+}

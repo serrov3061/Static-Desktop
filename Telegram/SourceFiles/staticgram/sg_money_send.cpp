@@ -6,7 +6,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "staticgram/sg_money_send.h"
 
+#include "apiwrap.h"
 #include "boxes/peer_list_controllers.h"
+#include "data/data_session.h"
 #include "data/data_thread.h"
 #include "data/data_user.h"
 #include "lang/lang_keys.h"
@@ -19,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/layers/generic_box.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/fields/number_input.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/vertical_list.h"
@@ -26,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_layers.h"
+#include "styles/style_settings.h"
 #include "styles/style_staticgram.h"
 
 namespace StaticGram::Money {
@@ -34,6 +38,7 @@ namespace {
 struct Attempt {
 	int64 amount = 0;
 	QString comment;
+	QString target;
 	QString key;
 };
 
@@ -78,11 +83,67 @@ void AddRecipient(
 	}, wrap->lifetime());
 }
 
+// Android SGSendMoneyView «На адрес»: a wallet address or name.ton typed
+// in place of the recipient plate. Desktop also takes a @username here
+// (resolved to the user, then a plain gramwallet.send).
+not_null<Ui::InputField*> AddAddressRecipient(
+		not_null<Ui::VerticalLayout*> container) {
+	Ui::AddSubsectionTitle(container, tr::lng_sg_money_address_to());
+	const auto field = container->add(
+		object_ptr<Ui::InputField>(
+			container,
+			st::defaultInputField,
+			tr::lng_sg_money_address_hint()),
+		st::sgMoneyFieldPadding);
+	auto status = field->changes(
+	) | rpl::map([=] {
+		const auto text = field->getLastText().trimmed();
+		return text.isEmpty()
+			? tr::lng_sg_money_address_explain(tr::now)
+			: LooksLikeAddress(text)
+			? tr::lng_sg_money_address_valid(tr::now)
+			: LooksLikeTonDomain(text)
+			? tr::lng_sg_money_address_domain(tr::now)
+			: !ParseUsername(text).isEmpty()
+			? tr::lng_sg_money_address_username(tr::now)
+			: tr::lng_sg_nft_invalid_address(tr::now);
+	});
+	container->add(
+		object_ptr<Ui::FlatLabel>(
+			container,
+			rpl::single(
+				tr::lng_sg_money_address_explain(tr::now)
+			) | rpl::then(std::move(status)),
+			st::sgMoneyRecipientStatus),
+		st::sgMoneyFieldPadding);
+	return field;
+}
+
+void ResolveRecipient(
+		not_null<Main::Session*> session,
+		const QString &username,
+		Fn<void(UserData*)> done) {
+	session->api().request(MTPcontacts_ResolveUsername(
+		MTP_flags(0),
+		MTP_string(username),
+		MTPstring()
+	)).done([=](const MTPcontacts_ResolvedPeer &result) {
+		const auto &data = result.data();
+		session->data().processUsers(data.vusers());
+		session->data().processChats(data.vchats());
+		const auto peer = session->data().peerLoaded(
+			peerFromMTP(data.vpeer()));
+		done(peer ? peer->asUser() : nullptr);
+	}).fail([=] {
+		done(nullptr);
+	}).send();
+}
+
 void SendBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
 		Kind kind,
-		not_null<UserData*> user) {
+		UserData *user) {
 	using namespace Mokagram::BoxParts;
 	const auto session = &controller->session();
 	const auto state = box->lifetime().make_state<SendState>();
@@ -97,7 +158,12 @@ void SendBox(
 	box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
 
 	const auto container = box->verticalLayout();
-	AddRecipient(container, user);
+	const auto address = user
+		? nullptr
+		: AddAddressRecipient(container).get();
+	if (user) {
+		AddRecipient(container, not_null(user));
+	}
 
 	Ui::AddSubsectionTitle(
 		container,
@@ -134,7 +200,9 @@ void SendBox(
 		error = [=] { field->showError(); };
 		fiatParent = static_cast<Ui::RpWidget*>(field->parentWidget());
 	}
-	box->setFocusCallback(focus);
+	box->setFocusCallback(address
+		? Fn<void()>([=] { address->setFocusFast(); })
+		: focus);
 
 	// The rouble estimate on the right of the amount, like the upstream
 	// AddApproximateUsd.
@@ -200,51 +268,43 @@ void SendBox(
 			box->showToast(ErrorText(u"WALLET_CARD_COMMENT_TOO_LONG"_q));
 			return;
 		}
+		const auto target = address
+			? address->getLastText().trimmed()
+			: QString();
+		const auto username = address
+			&& !LooksLikeAddress(target)
+			&& !LooksLikeTonDomain(target)
+			? ParseUsername(target)
+			: QString();
+		if (address
+			&& username.isEmpty()
+			&& !LooksLikeAddress(target)
+			&& !LooksLikeTonDomain(target)) {
+			address->showError();
+			box->showToast(tr::lng_sg_nft_invalid_address(tr::now));
+			return;
+		}
 		// The same parameters reuse the key: a retry after a lost answer
 		// is answered with `replayed` instead of a second transfer.
 		auto &last = state->last;
 		if (last.key.isEmpty()
 			|| last.amount != amount
-			|| last.comment != message) {
+			|| last.comment != message
+			|| last.target != target) {
 			last = Attempt{
 				.amount = amount,
 				.comment = message,
+				.target = target,
 				.key = NewRequestKey(),
 			};
 		}
 		state->sending = true;
-		const auto name = user->name();
 		const auto boxWeak = QPointer<Ui::GenericBox>(box.get());
-		Send({
-			.kind = kind,
-			.to = user,
-			.amount = amount,
-			.comment = message,
-			.requestKey = last.key,
-		}, [=](SendResult result) {
-			const auto strong = weak.get();
-			if (!strong) {
-				return;
-			}
-			auto toast = tr::lng_sg_money_sent(
-				tr::now,
-				lt_amount,
-				(FormatAmount(kind, amount)
-					+ u" "_q
-					+ (gram ? u"GRAM"_q : u"Stars"_q)),
-				lt_user,
-				name);
-			if (result.fee > 0) {
-				toast += u"\n"_q + tr::lng_sg_money_fee(
-					tr::now,
-					lt_amount,
-					FormatGram(result.fee));
-			}
-			strong->showToast(toast);
-			if (const auto box = boxWeak.data()) {
-				box->closeBox();
-			}
-		}, [=](const QString &type) {
+		const auto amountText = FormatAmount(kind, amount)
+			+ u" "_q
+			+ (gram ? u"GRAM"_q : u"Stars"_q);
+		const auto key = last.key;
+		const auto failed = [=](const QString &type) {
 			const auto box = boxWeak.data();
 			if (!box) {
 				return;
@@ -258,7 +318,65 @@ void SendBox(
 				}
 			}
 			box->showToast(ErrorText(type));
-		});
+		};
+		const auto sent = [=](const QString &to, SendResult result) {
+			const auto strong = weak.get();
+			if (!strong) {
+				return;
+			}
+			auto toast = tr::lng_sg_money_sent(
+				tr::now,
+				lt_amount,
+				amountText,
+				lt_user,
+				to);
+			if (result.fee > 0) {
+				toast += u"\n"_q + tr::lng_sg_money_fee(
+					tr::now,
+					lt_amount,
+					FormatGram(result.fee));
+			}
+			strong->showToast(toast);
+			if (const auto box = boxWeak.data()) {
+				box->closeBox();
+			}
+		};
+		const auto sendTo = [=](not_null<UserData*> to) {
+			const auto name = to->name();
+			Send({
+				.kind = kind,
+				.to = to,
+				.amount = amount,
+				.comment = message,
+				.requestKey = key,
+			}, [=](SendResult result) {
+				sent(name, result);
+			}, failed);
+		};
+		if (user) {
+			sendTo(not_null(user));
+			return;
+		} else if (!username.isEmpty()) {
+			ResolveRecipient(session, username, [=](UserData *to) {
+				if (!to || !CanReceiveMoney(to)) {
+					failed(to && to->isBot()
+						? u"USER_IS_BOT"_q
+						: u"USER_ID_INVALID"_q);
+				} else if (to->isSelf()) {
+					state->sending = false;
+					if (const auto box = boxWeak.data()) {
+						box->showToast(tr::lng_sg_money_not_self(tr::now));
+					}
+				} else {
+					sendTo(not_null(to));
+				}
+			});
+			return;
+		}
+		SendToAddress(session, target, amount, message, key, [=](
+				SendResult result) {
+			sent(target, result);
+		}, failed);
 	};
 	comment->submits() | rpl::on_next(send, comment->lifetime());
 
@@ -298,7 +416,7 @@ void ChooseRecipient(
 			return;
 		}
 		strong->show(
-			Box(SendBox, strong, kind, not_null(user)),
+			Box(SendBox, strong, kind, user),
 			Ui::LayerOption::KeepOther);
 	};
 	auto filter = [](not_null<Data::Thread*> thread) {
@@ -317,6 +435,32 @@ void ChooseRecipient(
 		*chooser = box.get();
 		box->setTitle(tr::lng_sg_money_choose_recipient());
 		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+		if (kind != Kind::Gram) {
+			return;
+		}
+		// Android UserSelectorBottomSheet: «На адрес» above the users.
+		auto above = object_ptr<Ui::VerticalLayout>(box);
+		const auto button = above->add(object_ptr<Ui::SettingsButton>(
+			above,
+			tr::lng_sg_money_to_address(),
+			st::settingsButtonNoIcon));
+		above->add(
+			object_ptr<Ui::FlatLabel>(
+				above,
+				tr::lng_sg_money_to_address_about(),
+				st::sgMoneyRecipientStatus),
+			st::sgMoneyAddressAboutPadding);
+		button->setClickedCallback([=] {
+			if (const auto box = chooser->data()) {
+				box->closeBox();
+			}
+			if (const auto strong = weak.get()) {
+				strong->show(
+					Box(SendBox, strong, Kind::Gram, nullptr),
+					Ui::LayerOption::KeepOther);
+			}
+		});
+		box->peerListSetAboveWidget(std::move(above));
 	};
 	controller->show(
 		Box<PeerListBox>(std::move(list), std::move(init)),
@@ -347,7 +491,7 @@ void ShowSendMoney(
 			to->isBot() ? u"USER_IS_BOT"_q : u"USER_GIFT_UNAVAILABLE"_q));
 	} else {
 		controller->show(
-			Box(SendBox, controller, kind, not_null(to)),
+			Box(SendBox, controller, kind, to),
 			Ui::LayerOption::KeepOther);
 	}
 }

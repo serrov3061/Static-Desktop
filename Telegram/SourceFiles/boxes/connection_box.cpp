@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/web_proxy/web_proxy_transport.h"
 #include "qr/qr_generate.h"
 #include "settings/settings_common.h"
+#include "staticgram/sg_proxies.h"
 #include "storage/localstorage.h"
 #include "ui/basic_click_handlers.h"
 #include "ui/boxes/confirm_box.h"
@@ -412,7 +413,12 @@ void ShareProxy(
 	}
 	const auto trimmed = candidates.front().trimmed();
 	const auto converted = Core::TryConvertUrlToLocal(trimmed);
-	const auto local = converted.isEmpty() ? trimmed : converted;
+	const auto telegram = StaticGram::Proxies::TelegramLinkToLocal(trimmed);
+	const auto local = !telegram.isEmpty()
+		? telegram
+		: converted.isEmpty()
+		? trimmed
+		: converted;
 	const auto proxy = ProxyDataFromLocalUrl(local);
 	return proxy.valid() ? proxy : ProxyData();
 }
@@ -463,7 +469,10 @@ void AddProxyFromClipboard(
 			? tr::lng_proxy_add_from_clipboard_existing_toast
 			: tr::lng_proxy_add_from_clipboard_good_toast)(tr::now);
 		if (isSingle) {
-			show->showToast(toast);
+			// StaticGram: a Telegram MTProxy most likely does not work here.
+			show->showToast(StaticGram::Proxies::NeedsWarning(proxy)
+				? tr::lng_sg_proxy_not_for_sg(tr::now)
+				: toast);
 		}
 		if (!contains) {
 			controller->addNewItem(proxy);
@@ -475,7 +484,13 @@ void AddProxyFromClipboard(
 	for (const auto &maybeUrl : maybeUrls) {
 		const auto trimmed = maybeUrl.trimmed();
 		const auto local = Core::TryConvertUrlToLocal(trimmed);
-		const auto check = local.isEmpty() ? trimmed : local;
+		const auto telegram = StaticGram::Proxies::TelegramLinkToLocal(
+			trimmed);
+		const auto check = !telegram.isEmpty()
+			? telegram
+			: local.isEmpty()
+			? trimmed
+			: local;
 		const auto result = proceedUrl(check);
 		if (success != Result::Success) {
 			success = result;
@@ -952,7 +967,15 @@ void ProxyRow::paintEvent(QPaintEvent *e) {
 			+ st::proxyCheckingAnimation.size.width()
 			+ st::proxyCheckingSkip;
 	}
-	p.drawTextLeft(statusLeft, top, width(), status);
+	p.drawTextLeft(
+		statusLeft,
+		top,
+		width(),
+		(_view.official
+			? (status
+				+ QString::fromUtf8(" \xC2\xB7 ")
+				+ tr::lng_sg_proxy_official(tr::now))
+			: status));
 	top += st::normalFont->height + st::proxyRowPadding.bottom();
 }
 
@@ -1278,6 +1301,38 @@ void ProxiesBox::setupContent() {
 			st::proxyAboutPadding),
 		style::margins(0, 0, 0, st::proxyRowPadding.top()));
 
+	// StaticGram: the official proxies, one tap to connect (Android
+	// ProxyListActivity, app config sg_official_proxies).
+	const auto official = StaticGram::Proxies::OfficialList();
+	if (!official.empty()) {
+		inner->add(
+			object_ptr<Ui::FlatLabel>(
+				inner,
+				tr::lng_sg_proxy_official_header(),
+				st::defaultSubsectionTitle),
+			st::defaultSubsectionTitlePadding);
+		for (const auto &proxy : official) {
+			const auto data = StaticGram::Proxies::ToProxyData(proxy);
+			Settings::AddButtonWithLabel(
+				inner,
+				rpl::single(proxy.title),
+				rpl::single(proxy.server + ':' + QString::number(proxy.port)),
+				st::settingsButtonNoIcon
+			)->setClickedCallback([=] {
+				_controller->addOrApplyItem(data);
+			});
+		}
+		inner->add(
+			object_ptr<Ui::DividerLabel>(
+				inner,
+				object_ptr<Ui::FlatLabel>(
+					inner,
+					tr::lng_sg_proxy_official_info(),
+					st::boxDividerLabel),
+				st::proxyAboutPadding),
+			style::margins(0, 0, 0, st::proxyRowPadding.top()));
+	}
+
 	_wrap = inner->add(std::move(_initialWrap));
 	inner->add(object_ptr<Ui::FixedHeightWidget>(
 		inner,
@@ -1575,6 +1630,11 @@ void ProxyBox::refreshButtons() {
 
 void ProxyBox::save() {
 	if (const auto data = collectData()) {
+		if (StaticGram::Proxies::NeedsWarning(data)) {
+			// Android ProxySettingsActivity: Telegram MTProxies only
+			// forward to Telegram servers.
+			showToast(tr::lng_sg_proxy_not_for_sg(tr::now));
+		}
 		_callback(data);
 		closeBox();
 	}
@@ -2120,6 +2180,18 @@ void ProxiesBoxController::ShowApplyConfirmation(
 				st::proxyApplyBoxSponsorMargin,
 				st::proxyApplyBoxSponsorMargin);
 		}
+		if (StaticGram::Proxies::NeedsWarning(proxy)) {
+			auto warning = object_ptr<Ui::FlatLabel>(
+				table,
+				tr::lng_sg_proxy_not_for_sg(),
+				st::proxyApplyBoxSponsorLabel);
+			warning->setTextColorOverride(st::attentionButtonFg->c);
+			table->addRow(
+				std::move(warning),
+				object_ptr<Ui::RpWidget>(nullptr),
+				st::proxyApplyBoxSponsorMargin,
+				st::proxyApplyBoxSponsorMargin);
+		}
 
 		const auto enableButton = box->addButton(
 			tr::lng_proxy_box_table_button(),
@@ -2460,6 +2532,19 @@ bool ProxiesBoxController::contains(const ProxyData &proxy) const {
 	return (j != end(_list));
 }
 
+void ProxiesBoxController::addOrApplyItem(const ProxyData &proxy) {
+	const auto j = findByProxy(proxy);
+	if (j == end(_list)) {
+		addNewItem(proxy);
+		return;
+	}
+	const auto id = j->id;
+	if (j->deleted) {
+		restoreItem(id);
+	}
+	applyItem(id);
+}
+
 void ProxiesBoxController::addNewItem(const ProxyData &proxy) {
 	_settings.addToList(proxy);
 
@@ -2600,6 +2685,8 @@ void ProxiesBoxController::updateView(const Item &item) {
 			&& (state == ItemState::WaitingForBrowser
 				|| state == ItemState::Unavailable),
 		state,
+		(item.data.type != Type::Web
+			&& StaticGram::Proxies::IsOfficialHost(item.data.host)),
 	});
 }
 

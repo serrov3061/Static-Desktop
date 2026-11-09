@@ -8,9 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_credits.h"
 #include "apiwrap.h"
-#include "core/application.h"
-#include "core/click_handler_types.h"
-#include "core/local_url_handlers.h" // ResolveAndShowUniqueGift.
+#include "base/call_delayed.h"
 #include "data/data_credits.h"
 #include "data/data_session.h"
 #include "data/data_star_gift.h"
@@ -22,11 +20,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mokagram/ui/mokagram_box_parts.h"
 #include "settings/settings_credits_graphics.h" // ReceiptCreditsBox.
 #include "staticgram/sg_money_cards.h"
+#include "staticgram/sg_money_editor.h"
+#include "staticgram/sg_money_nft.h"
 #include "staticgram/sg_money_send.h"
 #include "ui/layers/generic_box.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/discrete_sliders.h"
 #include "ui/widgets/labels.h"
+#include "ui/widgets/popup_menu.h"
 #include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
@@ -46,16 +47,6 @@ constexpr auto kGiftsPerRow = 3;
 	return (kind == Kind::Gram) ? u"GRAM"_q : u"Stars"_q;
 }
 
-void OpenCardEditor(not_null<Window::SessionController*> controller) {
-	// Android SGCards.openBot: the card editor and the purchase live in
-	// the @StaticGramApp bot.
-	Core::App().openLocalUrl(
-		u"sg://resolve?domain=StaticGramApp&start=wcard"_q,
-		QVariant::fromValue(ClickHandlerContext{
-			.sessionWindow = base::make_weak(controller),
-		}));
-}
-
 not_null<Ui::FlatLabel*> AddCenteredLabel(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> text,
@@ -68,7 +59,8 @@ not_null<Ui::FlatLabel*> AddCenteredLabel(
 
 void AddEditCardLink(
 		not_null<Ui::VerticalLayout*> container,
-		not_null<Window::SessionController*> controller) {
+		not_null<Window::SessionController*> controller,
+		Fn<Kind()> kind) {
 	const auto wrap = container->add(
 		object_ptr<Ui::RpWidget>(container),
 		st::sgMoneyLinkPadding);
@@ -76,7 +68,7 @@ void AddEditCardLink(
 		wrap,
 		tr::lng_sg_money_edit_card(tr::now));
 	link->setClickedCallback([=] {
-		OpenCardEditor(controller);
+		ShowCardEditor(controller, kind());
 	});
 	rpl::combine(
 		wrap->widthValue(),
@@ -174,9 +166,11 @@ class GiftsGrid final : public Ui::RpWidget {
 public:
 	GiftsGrid(
 		QWidget *parent,
-		not_null<Window::SessionController*> controller);
+		not_null<Window::SessionController*> controller,
+		Fn<void(const NftItem&)> clicked);
 
-	void append(std::vector<Data::StarGift> gifts);
+	void append(std::vector<NftItem> items);
+	void clear();
 	[[nodiscard]] bool empty() const;
 
 protected:
@@ -185,7 +179,7 @@ protected:
 private:
 	void layout(int width);
 
-	const base::weak_ptr<Window::SessionController> _controller;
+	const Fn<void(const NftItem&)> _clicked;
 	Info::PeerGifts::Delegate _delegate;
 	std::vector<std::unique_ptr<Info::PeerGifts::GiftButton>> _buttons;
 
@@ -193,9 +187,10 @@ private:
 
 GiftsGrid::GiftsGrid(
 	QWidget *parent,
-	not_null<Window::SessionController*> controller)
+	not_null<Window::SessionController*> controller,
+	Fn<void(const NftItem&)> clicked)
 : RpWidget(parent)
-, _controller(controller)
+, _clicked(std::move(clicked))
 , _delegate(
 	&controller->session(),
 	Info::PeerGifts::GiftButtonMode::Minimal) {
@@ -205,27 +200,28 @@ bool GiftsGrid::empty() const {
 	return _buttons.empty();
 }
 
-void GiftsGrid::append(std::vector<Data::StarGift> gifts) {
-	for (auto &gift : gifts) {
+void GiftsGrid::clear() {
+	_buttons.clear();
+	resizeToWidth(width());
+}
+
+void GiftsGrid::append(std::vector<NftItem> items) {
+	for (auto &item : items) {
+		if (!item.gift) {
+			continue;
+		}
 		auto button = std::make_unique<Info::PeerGifts::GiftButton>(
 			this,
 			&_delegate);
 		const auto raw = button.get();
-		const auto unique = gift.unique;
 		raw->setDescriptor(
 			Info::PeerGifts::GiftTypeStars{
-				.info = std::move(gift),
+				.info = *item.gift,
 				.mine = true,
 			},
 			Info::PeerGifts::GiftButtonMode::Minimal);
-		const auto weak = _controller;
-		raw->setClickedCallback([=] {
-			const auto strong = weak.get();
-			if (strong && unique && !unique->slug.isEmpty()) {
-				Core::ResolveAndShowUniqueGift(
-					strong->uiShow(),
-					unique->slug);
-			}
+		raw->setClickedCallback([this, item = std::move(item)] {
+			_clicked(item);
 		});
 		raw->show();
 		_buttons.push_back(std::move(button));
@@ -269,11 +265,13 @@ void GiftsGrid::layout(int width) {
 	}
 }
 
-// wallet.getNfts: the collectibles of the custodial chain wallet.
+// wallet.getNfts: the collectibles of the custodial chain wallet. A click
+// opens the actions (Android SGNftSheet / StarGiftSheet in wallet mode).
 void FillCollectibles(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> controller) {
 	const auto session = &controller->session();
+	const auto weak = base::make_weak(controller);
 	const auto placeholder = container->add(
 		object_ptr<Ui::VerticalLayout>(container));
 	AddCenteredLabel(
@@ -281,8 +279,45 @@ void FillCollectibles(
 		tr::lng_sg_money_loading(),
 		st::sgMoneyEmptyLabel,
 		st::sgMoneyEmptyPadding);
+
+	struct State {
+		QString next;
+		bool loading = false;
+		int generation = 0;
+		base::flat_set<QString> removed;
+		base::unique_qptr<Ui::PopupMenu> menu;
+		Fn<void()> reload;
+	};
+	const auto state = container->lifetime().make_state<State>();
+	const auto moved = [=](const QString &address) {
+		return crl::guard(container, [=] {
+			// Chain moves land within seconds: hide the item now and
+			// reload a few times (Android SGChainWallet.invalidateSoon).
+			state->removed.emplace(address);
+			state->reload();
+			for (const auto delay : { 3000, 8000, 15000 }) {
+				base::call_delayed(crl::time(delay), container, [=] {
+					state->reload();
+				});
+			}
+		});
+	};
+	const auto showMenu = [=](const NftItem &item) {
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		state->menu = base::make_unique_q<Ui::PopupMenu>(
+			container,
+			st::popupMenuWithIcons);
+		FillNftMenu(state->menu.get(), strong, item, moved(item.address));
+		state->menu->popup(QCursor::pos());
+	};
 	const auto grid = container->add(
-		object_ptr<GiftsGrid>(container, controller));
+		object_ptr<GiftsGrid>(container, controller, showMenu));
+	// Usernames, numbers and domains: plain rows under the gifts.
+	const auto others = container->add(
+		object_ptr<Ui::VerticalLayout>(container));
 	const auto more = container->add(
 		object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
 			container,
@@ -292,24 +327,52 @@ void FillCollectibles(
 				st::settingsButtonNoIcon)));
 	more->hide(anim::type::instant);
 
-	struct State {
-		QString next;
-		bool loading = false;
+	const auto empty = [=] {
+		return grid->empty() && !others->count();
 	};
-	const auto state = container->lifetime().make_state<State>();
-	const auto load = std::make_shared<Fn<void()>>();
-	*load = [=] {
-		if (state->loading) {
+	const auto load = std::make_shared<Fn<void(bool)>>();
+	*load = [=](bool reset) {
+		if (state->loading && !reset) {
 			return;
 		}
+		if (reset) {
+			state->next = QString();
+		}
 		state->loading = true;
+		const auto generation = ++state->generation;
 		LoadNfts(session, state->next, crl::guard(container, [=](
 				NftSlice slice) {
+			if (generation != state->generation) {
+				return;
+			}
 			state->loading = false;
 			state->next = slice.next;
+			if (reset) {
+				grid->clear();
+				others->clear();
+			}
+			auto items = std::vector<NftItem>();
+			for (auto &item : slice.items) {
+				if (state->removed.contains(item.address)) {
+					continue;
+				} else if (!item.gift) {
+					const auto button = others->add(
+						object_ptr<Ui::SettingsButton>(
+							others,
+							rpl::single(item.name.isEmpty()
+								? item.address
+								: item.name),
+							st::settingsButtonNoIcon));
+					button->setClickedCallback([=] {
+						showMenu(item);
+					});
+					continue;
+				}
+				items.push_back(std::move(item));
+			}
+			grid->append(std::move(items));
 			placeholder->clear();
-			grid->append(std::move(slice.gifts));
-			if (grid->empty()) {
+			if (empty()) {
 				AddCenteredLabel(
 					placeholder,
 					tr::lng_sg_money_no_collectibles(),
@@ -319,8 +382,11 @@ void FillCollectibles(
 			more->toggle(!state->next.isEmpty(), anim::type::instant);
 			container->resizeToWidth(container->width());
 		}), crl::guard(container, [=] {
+			if (generation != state->generation) {
+				return;
+			}
 			state->loading = false;
-			if (grid->empty()) {
+			if (empty()) {
 				placeholder->clear();
 				AddCenteredLabel(
 					placeholder,
@@ -331,9 +397,10 @@ void FillCollectibles(
 			}
 		}));
 	};
-	more->entity()->setClickedCallback([=] { (*load)(); });
+	state->reload = [=] { (*load)(true); };
+	more->entity()->setClickedCallback([=] { (*load)(false); });
 	container->lifetime().add([=] { *load = nullptr; });
-	(*load)();
+	(*load)(false);
 }
 
 struct Balances {
@@ -395,7 +462,7 @@ void MoneyBox(
 	AddSendButton(container, pager)->setClickedCallback([=] {
 		ShowSendMoney(controller, pager->kind());
 	});
-	AddEditCardLink(container, controller);
+	AddEditCardLink(container, controller, [=] { return pager->kind(); });
 
 	const auto tabs = container->add(
 		object_ptr<Ui::SettingsSlider>(container, st::defaultTabsSlider),
@@ -490,7 +557,9 @@ void CardSheetBox(
 	}
 
 	if (self) {
-		AddEditCardLink(container, controller);
+		AddEditCardLink(container, controller, [=] {
+			return pager->kind();
+		});
 		AddCenteredLabel(
 			container,
 			tr::lng_sg_money_public_note(),

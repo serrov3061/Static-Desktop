@@ -58,3 +58,41 @@ sgCardMainButton: RoundButton(defaultActiveButton) {
 	textTop: 12px;
 	radius: 22px;
 }
+
+// p-misc: .ton domains, supporter badge of another user.
+sgDnsSuffix: FlatLabel(defaultFlatLabel) {
+	minWidth: 20px;
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(15px);
+	}
+}
+sgDnsState: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	textFg: windowSubTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(13px semibold);
+	}
+}
+sgDnsStage: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	align: align(top);
+	textFg: windowBoldFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(17px semibold);
+	}
+}
+sgBadgeNumber: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	align: align(top);
+	textFg: windowActiveTextFg;
+	style: TextStyle(defaultTextStyle) {
+		font: font(13px semibold);
+	}
+}
+sgBadgeCaption: FlatLabel(defaultFlatLabel) {
+	minWidth: 60px;
+	align: align(top);
+	textFg: windowFg;
+}
+// p-misc end

@@ -27,6 +27,7 @@ struct BadgesConfig {
 	QString priceUpgrade;
 	DocumentId defaultDocumentId = 0;
 	DocumentId developerDocumentId = 0;
+	bool transfer = false; // sg_badges_transfer: transfer_init / _claim.
 };
 [[nodiscard]] BadgesConfig ReadBadgesConfig(
 	not_null<Main::Session*> session);

@@ -564,10 +564,13 @@ TopBar::TopBar(
 	// StaticGram: a fresh badge list when a profile opens (Android
 	// ApiController.syncOnProfileOpen).
 	StaticGram::SyncBadgesOnProfileOpen();
-	if (_peer->isSelf() && _staticGramBadge) {
+	if (_staticGramBadge) {
+		// StaticGram: one's own badge opens its settings, someone else's
+		// the box about it (Android SupporterPeerSheet).
 		const auto window = descriptor.controller;
+		const auto peer = _peer;
 		_staticGramBadge->setPremiumClickCallback([=] {
-			StaticGram::ShowBadgeBox(window);
+			StaticGram::ShowPeerBadgeBox(window, peer);
 		});
 	}
 	StaticGram::BadgesUpdated() | rpl::on_next([=] {

@@ -13,16 +13,22 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "staticgram/sg_box_parts.h"
 #include "staticgram/sg_frame_params.h"
 #include "boxes/peers/edit_peer_color_box.h" // ButtonStyleWithRightEmoji.
+#include "base/unixtime.h"
+#include "core/application.h"
+#include "core/click_handler_types.h"
 #include "core/file_utilities.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "info/profile/info_profile_emoji_status_panel.h"
 #include "lang/lang_keys.h"
+#include "main/main_account.h"
+#include "main/main_domain.h"
 #include "main/main_session.h"
 #include "mokagram/ui/mokagram_box_parts.h"
 #include "settings/settings_common.h"
 #include "ui/basic_click_handlers.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/layers/generic_box.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
@@ -33,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/continuous_sliders.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
+#include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
 #include "styles/style_basic.h"
@@ -421,16 +428,11 @@ void AddFeature(
 	}, wrap->lifetime());
 }
 
-void SupporterBox(
+// The round badge icon on top of the supporter boxes.
+void AddBadgeIcon(
 		not_null<Ui::GenericBox*> box,
-		not_null<Window::SessionController*> controller,
-		bool fromBadgeBox) {
-	const auto session = &controller->session();
-	const auto config = ReadBadgesConfig(session);
-	SetupBox(box);
-	box->setWidth(st::boxWideWidth);
-	box->setNoContentMargin(true);
-
+		not_null<Main::Session*> session,
+		DocumentId documentId) {
 	struct State {
 		std::unique_ptr<Ui::Text::CustomEmoji> emoji;
 	};
@@ -440,9 +442,9 @@ void SupporterBox(
 		st::sgSupporterIconPadding,
 		style::al_top);
 	icon->resize(st::sgSupporterIcon, st::sgSupporterIcon);
-	if (config.defaultDocumentId) {
+	if (documentId) {
 		state->emoji = session->data().customEmojiManager().create(
-			config.defaultDocumentId,
+			documentId,
 			[=] { icon->update(); },
 			Data::CustomEmojiSizeTag::Large);
 	}
@@ -470,22 +472,13 @@ void SupporterBox(
 				st::activeButtonFg->c);
 		}
 	}, icon->lifetime());
+}
 
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			tr::lng_sg_badge_sheet_title(),
-			st::sgSupporterTitle),
-		st::sgSupporterTitlePadding,
-		style::al_top);
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			tr::lng_sg_badge_sheet_info(),
-			st::sgSupporterText),
-		st::sgSupporterTextPadding,
-		style::al_top);
-	const auto container = box->verticalLayout();
+// Android SupporterSheet steps (purchase in the shop bot), shared by the
+// own supporter box and the box about another user's badge.
+void AddPurchaseSteps(
+		not_null<Ui::VerticalLayout*> container,
+		const BadgesConfig &config) {
 	const auto features = AddCard(container, 4, 6);
 	AddFeature(
 		features,
@@ -509,6 +502,36 @@ void SupporterBox(
 		tr::lng_sg_badge_step3_title(),
 		tr::lng_sg_badge_step3_info());
 	Ui::AddSkip(features);
+}
+
+void SupporterBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		bool fromBadgeBox) {
+	const auto session = &controller->session();
+	const auto config = ReadBadgesConfig(session);
+	SetupBox(box);
+	box->setWidth(st::boxWideWidth);
+	box->setNoContentMargin(true);
+
+	AddBadgeIcon(box, session, config.defaultDocumentId);
+
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_sg_badge_sheet_title(),
+			st::sgSupporterTitle),
+		st::sgSupporterTitlePadding,
+		style::al_top);
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_sg_badge_sheet_info(),
+			st::sgSupporterText),
+		st::sgSupporterTextPadding,
+		style::al_top);
+	const auto container = box->verticalLayout();
+	AddPurchaseSteps(container, config);
 	Ui::AddSkip(container);
 
 	// The primary action depends on what the user already has.
@@ -543,6 +566,275 @@ void SupporterBox(
 			ShowSupporterBox(controller, fromBadgeBox);
 		}
 	}));
+}
+
+[[nodiscard]] QString BadgeNumberText(int number) {
+	return number
+		? tr::lng_sg_badge_number(
+			tr::now,
+			lt_number,
+			QString::number(number))
+		: QString();
+}
+
+// Android SupporterTransfer.showResult.
+void ShowTransferResult(
+		not_null<Window::SessionController*> controller,
+		const QString &result) {
+	const auto until = result.startsWith(u"cooldown:"_q)
+		? result.mid(9).toLongLong()
+		: 0LL;
+	if (until > 0) {
+		controller->showToast(tr::lng_sg_badge_transfer_cooldown(
+			tr::now,
+			lt_date,
+			TextWithEntities{ langDayOfMonthFull(
+				base::unixtime::parse(TimeId(until)).date()) },
+			tr::rich));
+	} else if (result == u"target_not_eligible"_q) {
+		controller->showToast(
+			tr::lng_sg_badge_transfer_has_badge(tr::now));
+	} else {
+		controller->showToast(tr::lng_sg_badge_transfer_failed(tr::now));
+	}
+}
+
+// Android SupporterTransfer.transfer: the source account asks the badge
+// bot for a one-time token (inline "transfer_init"), the target redeems
+// it ("transfer_claim <T>"), then both profiles are re-read.
+void TransferBadge(
+		not_null<Window::SessionController*> controller,
+		not_null<Main::Session*> to) {
+	const auto from = &controller->session();
+	const auto fromId = SelfId(from);
+	const auto toId = SelfId(to);
+	const auto toName = to->user()->name();
+	const auto weakTo = base::make_weak(to);
+	SendBadgesBotRequest(from, u"transfer_init"_q, crl::guard(controller, [=](
+			QString init) {
+		if (!init.startsWith(u"token:"_q)) {
+			ShowTransferResult(controller, init);
+			return;
+		}
+		const auto target = weakTo.get();
+		if (!target) {
+			ShowTransferResult(controller, QString());
+			return;
+		}
+		SendBadgesBotRequest(
+			target,
+			u"transfer_claim "_q + init.mid(6),
+			crl::guard(controller, [=](QString claim) {
+				if (claim != u"ok"_q) {
+					ShowTransferResult(controller, claim);
+					return;
+				}
+				MoveLocalBadge(fromId, toId);
+				SyncBadgesNow();
+				controller->showToast(tr::lng_sg_badge_transfer_done(
+					tr::now,
+					lt_name,
+					TextWithEntities{ toName },
+					tr::rich));
+			}));
+	}));
+}
+
+void ConfirmTransferBadge(
+		not_null<Window::SessionController*> controller,
+		not_null<Main::Session*> to) {
+	const auto number = BadgeOfUser(SelfId(&controller->session())).number;
+	const auto weakTo = base::make_weak(to);
+	controller->show(Ui::MakeConfirmBox({
+		.text = tr::lng_sg_badge_transfer_confirm(
+			lt_number,
+			rpl::single(TextWithEntities{
+				number ? (u"#"_q + QString::number(number)) : QString()
+			}),
+			lt_name,
+			rpl::single(TextWithEntities{ to->user()->name() }),
+			tr::rich),
+		.confirmed = [=](Fn<void()> close) {
+			close();
+			if (const auto target = weakTo.get()) {
+				TransferBadge(controller, target);
+			}
+		},
+		.confirmText = tr::lng_sg_badge_transfer_do(),
+		.confirmStyle = &st::attentionBoxButton,
+		.title = tr::lng_sg_badge_transfer_title(),
+	}));
+}
+
+// «Передать другому аккаунту» (Android SupporterTransfer.start): the other
+// accounts of this app without a badge, or «Другой аккаунт…» through the
+// badge bot (?start=transfer).
+void TransferBadgeBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	const auto session = &controller->session();
+	SetupBox(box);
+	box->setTitle(tr::lng_sg_badge_transfer_title());
+	box->setWidth(st::boxWideWidth);
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+
+	const auto container = box->verticalLayout();
+	const auto card = AddCard(container, 0, 6);
+	for (const auto &[index, account] : Core::App().domain().accounts()) {
+		if (!account->sessionExists()) {
+			continue;
+		}
+		const auto other = &account->session();
+		if (other == session || BadgeOfUser(SelfId(other))) {
+			continue;
+		}
+		const auto weak = base::make_weak(other);
+		Settings::AddButtonWithIcon(
+			card,
+			rpl::single(other->user()->name()),
+			st::settingsButton,
+			{ &st::menuIconProfile }
+		)->setClickedCallback([=] {
+			box->closeBox();
+			if (const auto target = weak.get()) {
+				ConfirmTransferBadge(controller, target);
+			}
+		});
+	}
+	const auto bot = ReadBadgesConfig(session).bot;
+	Settings::AddButtonWithIcon(
+		card,
+		tr::lng_sg_badge_transfer_other(),
+		st::settingsButton,
+		{ &st::menuIconLink }
+	)->setClickedCallback([=] {
+		box->closeBox();
+		Core::App().openLocalUrl(
+			u"sg://resolve?domain="_q + bot + u"&start=transfer"_q,
+			QVariant::fromValue(ClickHandlerContext{
+				.sessionWindow = base::make_weak(controller),
+			}));
+	});
+}
+
+[[nodiscard]] bool CanTransferBadge(not_null<Main::Session*> session) {
+	const auto badge = BadgeOfUser(SelfId(session));
+	const auto config = ReadBadgesConfig(session);
+	return badge && !badge.developer && config.transfer && !config.bot.isEmpty();
+}
+
+// Another user's badge (Android SupporterPeerSheet): «X supports
+// StaticGram», the number, the caption, the perks and how to get one.
+void PeerBadgeBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer) {
+	const auto session = &controller->session();
+	const auto config = ReadBadgesConfig(session);
+	const auto badge = peer->isUser()
+		? BadgeOfUser(peerToUser(peer->id).bare)
+		: UserBadge{ .documentId = BadgeDocumentId(peer) };
+	const auto custom = badge.canChange;
+	SetupBox(box);
+	box->setWidth(st::boxWideWidth);
+	box->setNoContentMargin(true);
+
+	AddBadgeIcon(
+		box,
+		session,
+		badge.documentId ? badge.documentId : config.defaultDocumentId);
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_sg_badge_peer_title(
+				lt_name,
+				rpl::single(TextWithEntities{ peer->name() }),
+				tr::rich),
+			st::sgSupporterTitle),
+		st::sgSupporterTitlePadding,
+		style::al_top);
+	if (badge.number) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				BadgeNumberText(badge.number),
+				st::sgBadgeNumber),
+			st::sgSupporterTextPadding,
+			style::al_top);
+	}
+	const auto container = box->verticalLayout();
+	if (const auto text = badge.text.trimmed(); !text.isEmpty()) {
+		auto caption = text;
+		caption.replace(u"{name}"_q, peer->name());
+		const auto bubble = AddCard(container, 6, 6);
+		bubble->add(
+			object_ptr<Ui::FlatLabel>(
+				bubble,
+				rpl::single(TextWithEntities{ caption }),
+				st::sgBadgeCaption),
+			QMargins(16, 10, 16, 10));
+	}
+	if (!custom) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				tr::lng_sg_badge_peer_subtitle(),
+				st::sgSupporterText),
+			st::sgSupporterTextPadding,
+			style::al_top);
+		const auto perks = AddCard(container, 4, 6);
+		AddFeature(
+			perks,
+			st::menuIconStar,
+			tr::lng_sg_badge_perk_badge(),
+			tr::lng_sg_badge_perk_badge_info());
+		AddFeature(
+			perks,
+			st::menuIconDownload,
+			tr::lng_sg_badge_perk_builds(),
+			tr::lng_sg_badge_perk_builds_info());
+		AddFeature(
+			perks,
+			st::menuIconSchedule,
+			tr::lng_sg_badge_perk_regdate(),
+			tr::lng_sg_badge_perk_regdate_info());
+		Ui::AddSkip(perks);
+	}
+
+	const auto mine = BadgeOfUser(SelfId(session));
+	const auto viewerHasIt = custom
+		? (mine.canChange || mine.developer)
+		: bool(mine);
+	if (viewerHasIt || config.shopUrl.isEmpty()) {
+		Ui::AddSkip(container);
+		box->addButton(
+			tr::lng_sg_badge_got_it(),
+			[=] { box->closeBox(); },
+			Mokagram::BoxParts::PillActive());
+		return;
+	}
+	container->add(
+		object_ptr<Ui::FlatLabel>(
+			container,
+			tr::lng_sg_badge_how_to_get(),
+			st::sgCardTitle),
+		QMargins(
+			Mokagram::BoxParts::kOuterSide + 16,
+			8,
+			Mokagram::BoxParts::kOuterSide + 16,
+			0));
+	AddPurchaseSteps(container, config);
+	Ui::AddSkip(container);
+	box->addButton(
+		((custom && mine)
+			? tr::lng_sg_badge_upgrade()
+			: tr::lng_sg_badge_buy()),
+		[=] {
+			box->closeBox();
+			OpenShop(session);
+		},
+		Mokagram::BoxParts::PillActive());
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }
 
 void BadgeBox(
@@ -613,6 +905,25 @@ void BadgeBox(
 	) | rpl::on_next([=] {
 		preview->update();
 	}, preview->lifetime());
+	// «Значок поддержки №N» under the preview (Android number pill).
+	auto number = rpl::single(
+		rpl::empty
+	) | rpl::then(
+		BadgesUpdated()
+	) | rpl::map([=] {
+		return current().number;
+	});
+	previewCard->add(
+		object_ptr<Ui::SlideWrap<Ui::FlatLabel>>(
+			previewCard,
+			object_ptr<Ui::FlatLabel>(
+				previewCard,
+				rpl::duplicate(number) | rpl::map(BadgeNumberText),
+				st::sgBadgeNumber),
+			QMargins(16, 0, 16, 8))
+	)->toggleOn(std::move(number) | rpl::map([](int value) {
+		return value > 0;
+	}), anim::type::instant);
 	preview->paintRequest() | rpl::on_next([=] {
 		auto p = QPainter(preview);
 		auto hq = PainterHighQualityEnabler(p);
@@ -763,6 +1074,16 @@ void BadgeBox(
 		)->addClickHandler([=] {
 			ShowFrameBox(controller);
 		});
+		if (CanTransferBadge(session)) {
+			Settings::AddButtonWithIcon(
+				frameCard,
+				tr::lng_sg_badge_transfer(),
+				st::settingsButton,
+				{ &st::menuIconForward }
+			)->setClickedCallback([=] {
+				controller->show(Box(TransferBadgeBox, controller));
+			});
+		}
 
 		if (state->kind == 2) {
 			if (!state->loaded) {
@@ -1601,6 +1922,16 @@ void ShowSupporterBox(
 		not_null<Window::SessionController*> controller,
 		bool fromBadgeBox) {
 	controller->show(Box(SupporterBox, controller, fromBadgeBox));
+}
+
+void ShowPeerBadgeBox(
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer) {
+	if (peer->isSelf()) {
+		ShowBadgeBox(controller);
+	} else if (BadgeDocumentId(peer)) {
+		controller->show(Box(PeerBadgeBox, controller, peer));
+	}
 }
 
 } // namespace StaticGram

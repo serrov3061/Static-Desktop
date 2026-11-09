@@ -6,10 +6,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-namespace Data {
-struct StarGift;
-struct UniqueGift;
-} // namespace Data
+#include "data/data_star_gift.h"
 
 namespace Main {
 class Session;
@@ -17,6 +14,10 @@ class Session;
 
 class DocumentData;
 class UserData;
+
+namespace Window {
+class SessionController;
+} // namespace Window
 
 // StaticGram «Money» (Android ui/Wallet/SGCardsController, SGFiat,
 // SGAmounts): GRAM and Stars balances, wallet cards (sgcard.*) and the
@@ -40,6 +41,7 @@ struct CardSticker {
 	float64 y = 0.5;
 	float64 scale = 0.2; // Of the card width.
 	float64 rotation = 0.; // Degrees.
+	QString giftSlug; // Set for a unique gift sticker (saved by slug).
 };
 
 struct Card {
@@ -110,8 +112,13 @@ void Send(
 	Fn<void(QString)> fail);
 [[nodiscard]] QString ErrorText(const QString &type);
 
+struct NftItem {
+	QString address; // The NFT item address on the StaticGram chain.
+	QString name;
+	std::optional<Data::StarGift> gift; // Unique gifts only.
+};
 struct NftSlice {
-	std::vector<Data::StarGift> gifts;
+	std::vector<NftItem> items;
 	QString next;
 };
 // wallet.getNfts: the collectibles on the custodial chain wallet.
@@ -120,5 +127,65 @@ void LoadNfts(
 	const QString &offset,
 	Fn<void(NftSlice)> done,
 	Fn<void()> fail);
+
+// gramwallet.sendToAddress: GRAM to a StaticGram wallet address (UQ…, EQ…,
+// 0:<hex>) or a name.ton domain, both resolved by the server.
+void SendToAddress(
+	not_null<Main::Session*> session,
+	const QString &address,
+	int64 amount,
+	const QString &comment,
+	const QString &requestKey,
+	Fn<void(SendResult)> done,
+	Fn<void(QString)> fail);
+
+// Android SGChainWallet.looksLikeAddress: friendly (48 url-safe base64
+// chars) or raw "0:<64 hex>".
+[[nodiscard]] bool LooksLikeAddress(const QString &text);
+// "name.ton" (any case).
+[[nodiscard]] bool LooksLikeTonDomain(const QString &text);
+// "@name", "name", "t.me/name": the username without the "@", else empty.
+[[nodiscard]] QString ParseUsername(const QString &text);
+
+// Chain NFT moves (gramwallet.transferNft): exactly one of the targets.
+struct NftTransfer {
+	QString nftAddress;
+	UserData *toUser = nullptr;
+	QString toAddress;
+	QByteArray depositPayload;
+	QString requestKey;
+};
+[[nodiscard]] QString NewNftRequestKey();
+void TransferNft(
+	not_null<Main::Session*> session,
+	const NftTransfer &transfer,
+	Fn<void()> done,
+	Fn<void(QString)> fail);
+// payments.depositStarGift: the payload that returns a gift from the
+// wallet back to the profile (sent with gramwallet.transferNft).
+void PrepareGiftDeposit(
+	not_null<Main::Session*> session,
+	const QString &slug,
+	Fn<void(QString nftAddress, QByteArray payload)> done,
+	Fn<void(QString)> fail);
+// wallet.getState: the custodial wallet address, empty when there is none.
+void LoadWalletAddress(
+	not_null<Main::Session*> session,
+	Fn<void(QString)> done);
+// Android SGChainWallet.errorText, else ErrorText.
+[[nodiscard]] QString NftErrorText(const QString &type);
+
+// sgcard.saveCard: the background gift slug (empty for the stock look) and
+// the stickers (gift slug or a static sticker document).
+void SaveCard(
+	not_null<Main::Session*> session,
+	Kind kind,
+	const QString &backgroundSlug,
+	const std::vector<CardSticker> &stickers,
+	Fn<void()> done,
+	Fn<void(QString)> fail);
+
+// Android SGCards.openBot: the cards are bought in @StaticGramApp.
+void OpenCardsPurchase(not_null<Window::SessionController*> controller);
 
 } // namespace StaticGram::Money

@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "payments/payments_checkout_process.h"
 #include "settings/settings_common.h"
+#include "staticgram/sg_money_api.h"
 #include "storage/storage_account.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/controls/custom_emoji_toast_icon.h"
@@ -539,7 +540,7 @@ void ExportOnBlockchain(
 		tr::marked);
 }
 
-void MoveToWalletBox(
+[[maybe_unused]] void MoveToWalletBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> window,
 		base::weak_qptr<PeerListBox> chooser,
@@ -794,6 +795,166 @@ void MoveToWalletBox(
 	}, move->lifetime());
 }
 
+// StaticGram: «Перенести в кошелёк» (Android StarGiftSheet
+// .openMoveToMyWalletAlert): payments.withdrawStarGift mints the gift into
+// the account's custodial wallet on the StaticGram chain. The upstream box
+// above needs the client-side TON wallet, which StaticGram does not use.
+// The cloud password is asked only when the server wants it (2FA on).
+void SgMoveToWalletBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> window,
+		base::weak_qptr<PeerListBox> chooser,
+		std::shared_ptr<Data::UniqueGift> gift,
+		Data::SavedStarGiftId savedId,
+		bool shownOnProfile) {
+	struct MoveState {
+		rpl::variable<QString> address;
+		bool busy = false;
+		bool finished = false;
+	};
+	const auto state = box->lifetime().make_state<MoveState>();
+	const auto session = &window->session();
+	const auto weak = base::make_weak(window);
+	const auto weakBox = base::make_weak(box);
+	const auto falseError = MTP::Error::Local(
+		u"STARGIFT_WITHDRAW_FALSE"_q,
+		u"payments.withdrawStarGift returned false"_q);
+
+	box->setTitle(tr::lng_sg_nft_move_to_wallet());
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		tr::lng_sg_nft_move_to_wallet_text(),
+		st::boxLabel));
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			state->address.value(),
+			st::giftMoveToWalletPath),
+		st::boxRowPadding + QMargins(0, st::boxPadding.top(), 0, 0));
+	StaticGram::Money::LoadWalletAddress(session, crl::guard(box, [=](
+			QString address) {
+		state->address = address;
+	}));
+	const auto checkbox = shownOnProfile
+		? box->addRow(
+			object_ptr<Ui::Checkbox>(
+				box,
+				tr::lng_sg_nft_keep_on_profile(),
+				session->local().readPref<bool>(
+					kGiftMoveKeepOnProfilePref,
+					true),
+				st::defaultBoxCheckbox),
+			st::boxRowPadding + QMargins(0, st::boxPadding.top(), 0, 0))
+		: nullptr;
+
+	const auto withdraw = [=](
+			bool keepOnProfile,
+			const QByteArray &tmpPassword,
+			Fn<void()> done,
+			Fn<void(const MTP::Error &)> fail) {
+		using Flag = MTPpayments_WithdrawStarGift::Flag;
+		session->api().request(MTPpayments_WithdrawStarGift(
+			MTP_flags(keepOnProfile ? Flag::f_keep_on_profile : Flag()),
+			Api::InputSavedStarGiftId(savedId, gift),
+			MTP_bytes(tmpPassword)
+		)).done([=](const MTPBool &result) {
+			if (mtpIsTrue(result)) {
+				done();
+			} else {
+				fail(falseError);
+			}
+		}).fail(fail).send();
+	};
+	const auto finish = [=](bool keepOnProfile) {
+		if (state->finished) {
+			return;
+		}
+		state->finished = true;
+		session->data().notifyGiftUpdate({
+			.id = savedId,
+			.slug = gift->slug,
+			.action = (keepOnProfile
+				? Data::GiftUpdate::Action::HostChange
+				: Data::GiftUpdate::Action::Transfer),
+		});
+		if (const auto strong = weak.get()) {
+			strong->showToast(tr::lng_sg_nft_moved_to_wallet(tr::now));
+		}
+		if (const auto strong = weakBox.get()) {
+			strong->closeBox();
+		}
+		if (const auto strong = chooser.get()) {
+			strong->closeBox();
+		}
+	};
+	const auto failed = [=](const MTP::Error &error) {
+		state->busy = false;
+		if (MTP::IgnoreError(error)) {
+			return;
+		}
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		const auto type = error.type();
+		const auto text = StaticGram::Money::NftErrorText(type);
+		if (type == u"FROZEN_METHOD_INVALID"_q
+			&& strong->uiShow()->showFrozenError()) {
+			return;
+		} else if (!text.endsWith(type)
+			|| !Ui::ShowGiftErrorToast(strong->uiShow(), error)) {
+			strong->showToast((type == falseError.type())
+				? Lang::Hard::ServerError()
+				: text);
+		}
+	};
+	const auto press = [=] {
+		if (state->busy || state->finished) {
+			return;
+		}
+		state->busy = true;
+		const auto keepOnProfile = checkbox && checkbox->checked();
+		if (checkbox) {
+			session->local().writePref<bool>(
+				kGiftMoveKeepOnProfilePref,
+				keepOnProfile);
+		}
+		withdraw(keepOnProfile, session->validTmpPassword(), [=] {
+			finish(keepOnProfile);
+		}, [=](const MTP::Error &error) {
+			const auto type = error.type();
+			const auto strong = weak.get();
+			const auto box = weakBox.get();
+			if (!strong
+				|| !box
+				|| !(TmpPasswordRefused(type)
+					|| type.startsWith(u"TMP_PASSWORD"_q))) {
+				failed(error);
+				return;
+			}
+			RequestWithGiftPassword(strong, box, {
+				.send = [=](
+						const QByteArray &tmpPassword,
+						Fn<void()> done,
+						Fn<void(const MTP::Error &)> fail) {
+					withdraw(
+						keepOnProfile,
+						tmpPassword,
+						std::move(done),
+						std::move(fail));
+				},
+				.succeeded = [=] { finish(keepOnProfile); },
+				.failed = failed,
+				.dismissed = [=] { state->busy = false; },
+			});
+		});
+	};
+	box->addButton(tr::lng_sg_nft_move(), press);
+	box->addButton(tr::lng_cancel(), [=] {
+		box->closeBox();
+	});
+}
+
 [[nodiscard]] ExportOption MakeExportOption(
 		not_null<Window::SessionController*> window,
 		not_null<PeerListBox*> box,
@@ -813,7 +974,7 @@ void MoveToWalletBox(
 		if (!hours) {
 			if (toWallet) {
 				window->show(Box(
-					MoveToWalletBox,
+					SgMoveToWalletBox,
 					window,
 					weak,
 					gift,
@@ -1047,7 +1208,9 @@ void Controller::init(not_null<PeerListBox*> box) {
 			_gift,
 			_giftId,
 			when,
-			_window->session().appConfig().walletAvailable(),
+			// StaticGram: own collectibles always go to the custodial
+			// chain wallet (Android canMoveToMyWallet).
+			true,
 			_shownOnProfile);
 		delegate()->peerListSetAboveWidget(std::move(_exportOption.content));
 		delegate()->peerListRefreshRows();
