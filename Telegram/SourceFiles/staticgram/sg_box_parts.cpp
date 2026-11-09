@@ -69,7 +69,10 @@ not_null<Ui::VerticalLayout*> AddCard(
 			container,
 			object_ptr<Ui::VerticalLayout>(container),
 			QMargins(0, kCardInset, 0, kCardInset)),
-		QMargins(kOuterSide, top, kOuterSide, bottom));
+		QMargins(kOuterSide, top, kOuterSide, bottom),
+		// Full content width: a card holding only labels would otherwise
+		// shrink to the labels' natural width.
+		style::al_justify);
 	wrap->paintOn([=](QPainter &p) {
 		Mokagram::BoxParts::PaintCard(p, wrap->rect());
 	});
