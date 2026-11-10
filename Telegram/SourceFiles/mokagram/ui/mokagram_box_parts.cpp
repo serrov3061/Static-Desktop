@@ -25,10 +25,12 @@ namespace {
 
 [[nodiscard]] style::RoundButton Pill(const style::RoundButton &base) {
 	auto result = base;
-	result.width = -30;
+	// StaticGram: 20px side paddings and the label centred by the font
+	// height (a fixed textTop of 10 put it a pixel low).
+	result.width = -40;
 	result.height = 40;
-	result.textTop = 10;
 	result.style = st::defaultBoxButton.style;
+	result.textTop = (result.height - result.style.font->height) / 2;
 	result.fullRadius = true;
 	return result;
 }

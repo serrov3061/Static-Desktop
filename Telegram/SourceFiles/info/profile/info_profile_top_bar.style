@@ -106,16 +106,18 @@ infoProfileTopBarShowLastSeen: RoundButton(defaultActiveButton) {
 }
 // The status line's 18px (infoProfileStatus.maxHeight) and a 4px gap.
 infoProfileTopBarBalanceSkip: 22px;
-infoProfileBalancePillHeight: 16px;
-// Sized like the unique gift cover's "released by" pill.
-infoProfileBalancePillPadding: margins(6px, 0px, 5px, 0px);
-infoProfileBalancePillLabelFont: font(10px);
-infoProfileBalancePillAmountFont: font(10px semibold);
-infoProfileBalancePillFractionFont: font(8px semibold);
-infoProfileBalancePillIconSize: 12px;
-infoProfileBalancePillLabelSkip: 3px;
-infoProfileBalancePillIconSkip: 2px;
-infoProfileBalancePillArrowSkip: 2px;
+// StaticGram: a readable wallet / music pill (was 16px tall with 10px
+// fonts and uneven 6 / 5 side paddings); the text stays optically centred
+// by PillTextBaseline() (the digits' figure height).
+infoProfileBalancePillHeight: 22px;
+infoProfileBalancePillPadding: margins(10px, 0px, 10px, 0px);
+infoProfileBalancePillLabelFont: font(12px);
+infoProfileBalancePillAmountFont: font(12px semibold);
+infoProfileBalancePillFractionFont: font(10px semibold);
+infoProfileBalancePillIconSize: 14px;
+infoProfileBalancePillLabelSkip: 4px;
+infoProfileBalancePillIconSkip: 3px;
+infoProfileBalancePillArrowSkip: 4px;
 infoProfileBalancePillArrow: icon{{ "dialogs/dialogs_topic_arrow", windowBoldFg }};
 infoProfileBalancePillColoredIconTint: 0.5;
 infoProfileTopBarPillsSkip: 10px;
