@@ -2482,6 +2482,10 @@ TextWithTags ComposeControls::getTextWithAppliedMarkdown() const {
 	return _field->getTextWithAppliedMarkdown();
 }
 
+void ComposeControls::playSentAnimation() {
+	_send->playSentAnimation();
+}
+
 void ComposeControls::clear(bool keepReply) {
 	// Otherwise cancelReplyMessage() will save the draft.
 	const auto saveTextDraft = keepReply || !replyingToMessage();

@@ -2705,6 +2705,9 @@ void ChatWidget::sendTextWithTags(
 	session().api().sendMessage(std::move(message), nextLocalMessageId);
 	_justMarkingAsRead = false;
 
+	if (!justMarkingAsRead) {
+		_composeControls->playSentAnimation();
+	}
 	_composeControls->clear(justMarkingAsRead);
 	session().sendProgressManager().update(
 		_history,

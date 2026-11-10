@@ -301,6 +301,8 @@ public:
 	void setText(const TextWithTags &text);
 	void selectAllFieldText();
 	void clear(bool keepReply = false);
+	// StaticGram: the send button gem animation after a sent message.
+	void playSentAnimation();
 	void hidePanelsAnimated();
 	void clearListenState();
 

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
+#include <QtSvg/QSvgRenderer>
 #include "styles/style_chat_helpers.h"
 #include "styles/style_credits.h"
 #include "lang/lang_keys.h"
@@ -22,6 +23,83 @@ namespace Ui {
 namespace {
 
 constexpr auto kWideScale = 5;
+constexpr auto kSentOutDuration = crl::time(300);
+constexpr auto kSentInDuration = crl::time(380);
+
+// StaticGram: our gem logo (Android send_plane_24 of StaticGram) instead
+// of the paper plane, white; tinted when painted.
+constexpr auto kGemPath =
+		"M 227.988,2.594 c -13.100,3.000 -27.200,9.700 -37.900,17.800 -6.500,5.000 -30.300,24.700 "
+		"-32.100,26.600 -0.300,0.300 -6.100,5.200 -13.000,10.900 -6.900,5.800 -17.700,14.800 "
+		"-24.000,20.100 -6.300,5.300 -23.900,19.700 -39.000,32.000 -15.100,12.300 -30.200,24.500 "
+		"-33.500,27.200 -3.300,2.700 -11.700,9.400 -18.600,14.800 -13.300,10.400 -19.300,16.900 "
+		"-23.900,26.000 -4.400,8.700 -6.000,15.500 -6.000,25.400 0.000,10.300 1.500,16.900 "
+		"5.800,25.900 3.400,7.100 3.600,7.300 19.600,27.300 6.600,8.200 19.900,24.800 29.600,36.900 "
+		"23.500,29.400 54.200,67.400 65.900,81.500 5.200,6.300 12.100,14.600 15.300,18.500 "
+		"35.400,43.000 106.400,127.400 156.800,186.500 10.600,12.400 25.100,29.400 32.200,37.800 "
+		"14.800,17.400 22.400,24.000 31.800,27.600 14.000,5.400 23.200,5.900 36.500,2.100 "
+		"10.600,-3.100 14.200,-4.900 22.200,-11.200 5.900,-4.500 62.700,-51.000 84.700,-69.100 "
+		"5.600,-4.600 12.400,-10.300 15.200,-12.500 7.100,-5.800 41.800,-35.000 42.400,-35.600 "
+		"0.300,-0.300 3.400,-3.100 7.000,-6.100 3.600,-3.000 6.700,-5.700 7.000,-6.000 0.300,-0.300 "
+		"7.000,-6.100 15.000,-13.000 23.300,-20.000 72.900,-64.800 99.000,-89.400 31.200,-29.400 "
+		"41.600,-39.200 56.800,-53.600 9.500,-9.100 23.300,-22.100 30.500,-28.900 14.500,-13.500 "
+		"19.300,-19.300 24.200,-29.100 4.800,-9.500 6.700,-17.300 6.700,-26.500 0.000,-14.600 "
+		"-2.500,-20.800 -17.000,-42.800 -5.900,-9.000 -13.200,-20.200 -16.200,-25.000 -3.000,-4.900 "
+		"-7.300,-11.600 -9.500,-15.000 -2.200,-3.400 -9.600,-15.000 -16.400,-25.700 -6.800,-10.700 "
+		"-15.000,-23.600 -18.100,-28.500 -3.200,-5.000 -9.400,-14.900 -13.800,-22.100 "
+		"-11.400,-18.400 -19.300,-26.100 -32.900,-31.800 -9.700,-4.100 -10.200,-4.200 "
+		"-51.300,-11.600 -18.400,-3.400 -41.800,-7.700 -52.000,-9.600 -10.200,-1.900 -22.300,-4.200 "
+		"-27.000,-5.000 -15.400,-2.700 -41.400,-7.400 -46.500,-8.400 -18.400,-3.600 -98.500,-17.700 "
+		"-159.500,-28.100 -16.200,-2.700 -33.300,-5.700 -38.000,-6.500 -4.700,-0.800 -11.200,-1.900 "
+		"-14.500,-2.400 -3.300,-0.500 -10.000,-1.600 -15.000,-2.400 -14.200,-2.500 -35.600,-2.000 "
+		"-48.500,1.000 z m 394.000,115.800 c 7.700,3.800 11.800,12.400 10.400,22.000 -1.500,11.600 "
+		"-21.000,62.900 -58.100,153.600 -8.000,19.500 -18.500,45.200 -23.400,57.000 -7.600,18.800 "
+		"-16.300,39.700 -31.100,75.000 -2.200,5.200 -5.100,12.200 -6.500,15.500 -1.400,3.300 "
+		"-3.300,7.800 -4.300,10.000 -0.900,2.200 -3.700,8.500 -6.000,14.000 -13.200,31.300 "
+		"-18.800,38.000 -32.700,39.200 -11.700,0.900 -17.100,-2.000 -42.800,-23.200 -14.900,-12.300 "
+		"-44.900,-37.300 -57.100,-47.500 -5.500,-4.700 -16.500,-14.000 -24.500,-20.600 "
+		"-12.000,-10.100 -14.900,-13.100 -17.300,-17.700 -5.000,-9.900 -3.300,-21.300 4.500,-30.100 "
+		"3.300,-3.800 6.100,-6.100 41.400,-34.100 32.700,-25.900 37.400,-29.600 51.900,-41.100 "
+		"59.200,-46.500 83.300,-66.500 102.100,-84.600 9.700,-9.300 11.600,-11.600 11.300,-13.700 "
+		"-0.700,-6.300 -11.100,-2.900 -70.300,22.900 -73.400,32.100 -173.300,74.500 -196.200,83.300 "
+		"-12.700,4.900 -18.700,6.200 -28.800,6.100 -10.700,-0.100 -17.100,-1.700 -34.300,-8.600 "
+		"-17.300,-6.900 -44.600,-18.500 -50.500,-21.500 -11.200,-5.600 -17.600,-14.900 "
+		"-16.300,-23.500 1.400,-8.700 7.800,-14.200 22.600,-19.500 11.900,-4.300 53.200,-17.100 "
+		"72.000,-22.300 3.600,-1.000 11.900,-3.400 18.500,-5.300 15.400,-4.500 58.200,-16.200 "
+		"70.000,-19.200 4.900,-1.300 14.200,-3.800 20.500,-5.500 6.300,-1.700 16.500,-4.500 "
+		"22.500,-6.000 6.100,-1.600 16.900,-4.500 24.000,-6.500 14.700,-4.000 32.100,-8.600 "
+		"57.000,-15.100 9.400,-2.400 24.900,-6.400 34.500,-9.000 9.600,-2.500 21.100,-5.400 "
+		"25.500,-6.500 4.400,-1.000 11.400,-2.800 15.500,-3.900 19.400,-5.000 61.000,-14.000 "
+		"75.500,-16.300 5.700,-0.900 15.900,0.500 20.500,2.700 z";
+
+[[nodiscard]] QImage GenerateGem(QSize size, QColor color) {
+	const auto ratio = style::DevicePixelRatio();
+	auto result = QImage(size * ratio, QImage::Format_ARGB32_Premultiplied);
+	result.setDevicePixelRatio(ratio);
+	result.fill(Qt::transparent);
+	const auto svg = QByteArray("<svg xmlns=\"http://www.w3.org/2000/svg\" "
+		"width=\"822\" height=\"822\" viewBox=\"89 89 822 822\">"
+		"<g transform=\"translate(89.96,168.5) scale(1.02)\">"
+		"<path fill=\"#ffffff\" fill-rule=\"evenodd\" d=\"")
+		+ QByteArray(kGemPath)
+		+ QByteArray("\"/></g></svg>");
+	auto renderer = QSvgRenderer(svg);
+	{
+		auto p = QPainter(&result);
+		auto hq = PainterHighQualityEnabler(p);
+		renderer.render(&p, QRectF(QPointF(), QSizeF(size)));
+		p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+		p.fillRect(QRect(QPoint(), size), color);
+	}
+	return result;
+}
+
+[[nodiscard]] float64 EaseOutBack(float64 t) {
+	constexpr auto c1 = 1.70158;
+	constexpr auto c3 = c1 + 1.;
+	const auto x = t - 1.;
+	return 1. + c3 * x * x * x + c1 * x * x;
+}
 constexpr auto kVoiceToRoundIndex = 0;
 constexpr auto kRoundToVoiceIndex = 1;
 constexpr auto kForbiddenOpacity = 0.5;
@@ -163,6 +241,11 @@ void SendButton::paintEvent(QPaintEvent *e) {
 		return;
 	}
 
+	if (const auto sent = _sentAnimation.value(1.); sent < 1.) {
+		paintSentAnimation(p, over, sent);
+		return;
+	}
+
 	auto changed = _stateChangeAnimation.value(1.);
 	if (changed < 1.) {
 		PainterHighQualityEnabler hq(p);
@@ -205,6 +288,10 @@ void SendButton::paintEvent(QPaintEvent *e) {
 			_contentTo);
 		return;
 	}
+	paintContent(p, over);
+}
+
+void SendButton::paintContent(QPainter &p, bool over) {
 	switch (_state.type) {
 	case Type::Record: paintRecord(p, over); break;
 	case Type::Round: paintRound(p, over); break;
@@ -222,6 +309,81 @@ void SendButton::paintEvent(QPaintEvent *e) {
 	case Type::Slowmode: paintSlowmode(p); break;
 	case Type::EditPrice: break;
 	}
+}
+
+void SendButton::playSentAnimation() {
+	_sentAnimation.stop();
+	_sentAnimation.start(
+		[=] { update(); },
+		0.,
+		1.,
+		kSentOutDuration + kSentInDuration,
+		anim::linear);
+}
+
+void SendButton::paintGem(QPainter &p, QRect rect, QColor color) {
+	const auto ratio = style::DevicePixelRatio();
+	if (_gem.isNull()
+		|| _gemColor != color
+		|| _gem.size() != rect.size() * ratio) {
+		_gem = GenerateGem(rect.size(), color);
+		_gemColor = color;
+	}
+	p.drawImage(rect, _gem);
+}
+
+void SendButton::paintSentAnimation(
+		QPainter &p,
+		bool over,
+		float64 progress) {
+	const auto time = progress * (kSentOutDuration + kSentInDuration);
+	if (time >= kSentOutDuration) {
+		// The current content springs back in from below.
+		const auto t = std::min((time - kSentOutDuration) / kSentInDuration, 1.);
+		const auto spring = EaseOutBack(t);
+		p.save();
+		p.setOpacity(p.opacity() * std::min(1., t * 2.));
+		p.translate(0., (1. - spring) * height() * 0.5);
+		paintContent(p, over);
+		p.restore();
+		return;
+	}
+	// The sent gem squashes with a tilt, then jumps up spinning and fades.
+	const auto q = time / kSentOutDuration;
+	auto scale = 1.;
+	auto angle = 0.;
+	auto shift = 0.;
+	auto opacity = 1.;
+	if (q < 0.4) {
+		const auto s = 1. - std::pow(1. - q / 0.4, 3);
+		scale = 1. - 0.22 * s;
+		angle = -10. * s;
+	} else {
+		const auto s = (q - 0.4) / 0.6;
+		const auto e = s * s;
+		scale = 0.78 + 0.34 * e;
+		angle = -10. + 34. * e;
+		shift = -e * height();
+		opacity = 1. - s;
+	}
+	const auto rect = style::rtlrect(
+		QRect(_st.sendIconPosition, _st.inner.icon.size()),
+		width());
+	auto hq = PainterHighQualityEnabler(p);
+	p.save();
+	p.setOpacity(p.opacity() * opacity);
+	p.translate(QPointF(rect.center()) + QPointF(0., shift));
+	p.rotate(angle);
+	p.scale(scale, scale);
+	paintGem(
+		p,
+		QRect(
+			-rect.width() / 2,
+			-rect.height() / 2,
+			rect.width(),
+			rect.height()),
+		_st.sendIconFg->c);
+	p.restore();
 }
 
 void SendButton::paintRecord(QPainter &p, bool over) {
@@ -325,12 +487,18 @@ void SendButton::paintSend(QPainter &p, bool over) {
 			_st.inner.rippleAreaPosition.y(),
 			&color);
 	}
-	if (isDisabled()) {
-		const auto color = st::historyRecordVoiceFg->c;
-		sendIcon.paint(p, _st.sendIconPosition, width(), color);
-	} else {
-		sendIcon.paint(p, _st.sendIconPosition, width());
-	}
+	// StaticGram: the gem logo instead of the paper plane.
+	const auto rect = style::rtlrect(
+		QRect(_st.sendIconPosition, sendIcon.size()),
+		width());
+	paintGem(
+		p,
+		rect,
+		(isDisabled()
+			? st::historyRecordVoiceFg->c
+			: (over && _st.sendIconFillPadding <= 0)
+			? st::historySendIconFgOver->c
+			: _st.sendIconFg->c));
 }
 
 void SendButton::paintStop(QPainter &p, bool over) {

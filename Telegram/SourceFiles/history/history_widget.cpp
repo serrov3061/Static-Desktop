@@ -6217,8 +6217,12 @@ void HistoryWidget::sendTextWithTags(
 	// Just a flag not to drop reply info if we're not sending anything.
 	_justMarkingAsRead = !hasText
 		&& message.webPage.url.isEmpty();
+	const auto sentSomething = !_justMarkingAsRead;
 	session().api().sendMessage(std::move(message), nextLocalMessageId);
 	_justMarkingAsRead = false;
+	if (sentSomething) {
+		_send->playSentAnimation();
+	}
 
 	clearFieldText();
 	if (_preview) {

@@ -59,6 +59,9 @@ public:
 	void setState(State state);
 	void finishAnimating();
 
+	// StaticGram: the gem flies out after a message was sent (Android).
+	void playSentAnimation();
+
 protected:
 	void paintEvent(QPaintEvent *e) override;
 
@@ -87,6 +90,10 @@ private:
 	[[nodiscard]] QRect sendEllipseRect() const;
 	[[nodiscard]] QRect scheduleEllipseRect() const;
 
+	void paintContent(QPainter &p, bool over);
+	void paintSentAnimation(QPainter &p, bool over, float64 progress);
+	void paintGem(QPainter &p, QRect rect, QColor color);
+
 	void paintRecord(QPainter &p, bool over);
 	void paintRound(QPainter &p, bool over);
 	void paintSave(QPainter &p, bool over);
@@ -109,6 +116,10 @@ private:
 
 	Ui::Animations::Simple _stateChangeAnimation;
 	int _stateChangeFromWidth = 0;
+
+	Ui::Animations::Simple _sentAnimation;
+	QImage _gem;
+	QColor _gemColor;
 
 	QString _slowmodeDelayText;
 	Ui::Text::String _starsToSendText;
