@@ -1580,7 +1580,7 @@ void ChatWidget::setupComposeControls() {
 				? restriction
 				: topicRestriction
 				? std::move(topicRestriction)
-				: tr::lng_group_not_accessible(tr::now))
+				: Data::SendError(Data::NotAccessibleText(_peer)))
 			: topicRestriction
 			? std::move(topicRestriction)
 			: Data::SendError();

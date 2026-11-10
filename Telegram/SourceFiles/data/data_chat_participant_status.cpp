@@ -453,6 +453,17 @@ SendError RestrictionError(
 	return SendError();
 }
 
+QString NotAccessibleText(not_null<PeerData*> peer) {
+	if (const auto user = peer->asUser()) {
+		return user->isInaccessible()
+			? tr::lng_sg_write_deleted(tr::now)
+			: tr::lng_sg_write_user_unavailable(tr::now);
+	} else if (peer->isBroadcast()) {
+		return tr::lng_channel_not_accessible(tr::now);
+	}
+	return tr::lng_group_not_accessible(tr::now);
+}
+
 SendError AnyFileRestrictionError(not_null<PeerData*> peer) {
 	using Restriction = ChatRestriction;
 	for (const auto right : FilesSendRestrictionsList()) {

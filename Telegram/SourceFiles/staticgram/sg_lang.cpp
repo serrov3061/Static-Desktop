@@ -134,6 +134,8 @@ constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_banner_current", "Текущий баннер" },
 	{ "lng_sg_banner_none", "Нет баннера" },
 	{ "lng_sg_money_title", "Деньги" },
+	{ "lng_sg_write_deleted", "Этот аккаунт удалён." },
+	{ "lng_sg_write_user_unavailable", "Вы не можете писать этому пользователю." },
 	{ "lng_wallet_profile_balance", "Баланс:" },
 	{ "lng_wallet_send_balance", "Баланс: {amount} GRAM" },
 	{ "lng_sg_money_transactions", "Транзакции" },

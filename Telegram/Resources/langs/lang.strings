@@ -9254,6 +9254,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_banner_none" = "No banner";
 
 "lng_sg_money_title" = "Money";
+"lng_sg_write_deleted" = "This account was deleted.";
+"lng_sg_write_user_unavailable" = "You can't write to this user.";
 "lng_sg_money_transactions" = "Transactions";
 "lng_sg_money_collectibles" = "Collectibles";
 "lng_sg_money_no_transactions" = "No transactions yet";

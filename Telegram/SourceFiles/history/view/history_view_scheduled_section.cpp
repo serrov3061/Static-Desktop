@@ -344,7 +344,7 @@ void ScheduledWidget::setupComposeControls() {
 						? restriction
 						: topicRestriction
 						? std::move(topicRestriction)
-						: tr::lng_group_not_accessible(tr::now))
+						: Data::NotAccessibleText(_history->peer))
 					: topicRestriction
 					? std::move(topicRestriction)
 					: Data::SendError();
@@ -380,7 +380,7 @@ void ScheduledWidget::setupComposeControls() {
 				auto text = !canSendAnything
 					? (restriction
 						? restriction
-						: tr::lng_group_not_accessible(tr::now))
+						: Data::NotAccessibleText(_history->peer))
 					: Data::SendError();
 				return text ? Controls::WriteRestriction{
 					.text = std::move(*text),

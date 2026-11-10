@@ -252,6 +252,9 @@ struct SendErrorWithThread {
 	not_null<PeerData*> peer,
 	ChatRestriction restriction);
 [[nodiscard]] SendError AnyFileRestrictionError(not_null<PeerData*> peer);
+// StaticGram: why nothing can be sent here, by the peer kind (a private
+// chat with a deleted / unavailable user is not «group not accessible»).
+[[nodiscard]] QString NotAccessibleText(not_null<PeerData*> peer);
 [[nodiscard]] SendError FileRestrictionError(
 	not_null<PeerData*> peer,
 	const Ui::PreparedList &list,
