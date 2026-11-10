@@ -89,15 +89,38 @@ PaintRoundImageCallback MultiThumbnail(
 }
 
 QByteArray CreditsIconSvg(int strokeWidth) {
-	auto colorized = qs(Premium::ColorizedSvg(
-		Premium::CreditsIconGradientStops()));
-	colorized.replace(
-		u"stroke=\"none\""_q,
-		u"stroke=\"%1\""_q.arg(st::creditsStroke->c.name()));
-	colorized.replace(
-		u"stroke-width=\"1\""_q,
-		u"stroke-width=\"%1\""_q.arg(strokeWidth));
-	return colorized.toUtf8();
+	// StaticGram: a symmetric rounded five-pointed star (as on Android)
+	// instead of Telegram's tilted cut star, with the same gold gradient
+	// and outline, filling the whole square the callers render it into.
+	constexpr auto kPath =
+		"M47.55 7.92Q50.00 2.97 52.45 7.92L63.75 30.83"
+		"Q65.28 33.93 68.70 34.43L93.99 38.10"
+		"Q99.45 38.90 95.50 42.75L77.20 60.59"
+		"Q74.73 63.00 75.31 66.40L79.63 91.59"
+		"Q80.56 97.03 75.67 94.46L53.06 82.57"
+		"Q50.00 80.97 46.94 82.57L24.33 94.46"
+		"Q19.44 97.03 20.37 91.59L24.69 66.40"
+		"Q25.27 63.00 22.80 60.59L4.50 42.75Q0.55 38.90 6.01 38.10"
+		"L31.30 34.43Q34.72 33.93 36.25 30.83Z";
+	auto stops = QString();
+	for (const auto &stop : Premium::CreditsIconGradientStops()) {
+		stops += u"<stop offset='%1' stop-color='%2'/>"_q.arg(
+			QString::number(stop.first),
+			stop.second.name());
+	}
+	const auto result = u"<svg width=\"100\" height=\"100\" "_q
+		+ u"viewBox=\"0 0 100 100\" "_q
+		+ u"xmlns=\"http://www.w3.org/2000/svg\"><defs>"_q
+		+ u"<linearGradient id='Gradient2' x1='0' x2='1' y1='1' y2='0'>"_q
+		+ stops
+		+ u"</linearGradient></defs><path fill=\"url(#Gradient2)\" "_q
+		+ u"stroke=\"%1\" stroke-width=\"%2\" "_q.arg(
+			st::creditsStroke->c.name(),
+			QString::number(strokeWidth))
+		+ u"stroke-linejoin=\"round\" d=\""_q
+		+ QString::fromLatin1(kPath)
+		+ u"\"/></svg>"_q;
+	return result.toUtf8();
 }
 
 } // namespace

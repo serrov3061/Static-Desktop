@@ -40,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_common.h"
 #include "settings/settings_common_session.h"
 #include "settings/settings_credits_graphics.h"
+#include "staticgram/sg_money.h"
 #include "statistics/widgets/chart_header_widget.h"
 #include "ui/boxes/boost_box.h"
 #include "ui/effects/animation_value_f.h"
@@ -934,9 +935,12 @@ void BuildCreditsButtons(
 			.title = tr::lng_credits_stats_button(),
 			.st = &st::settingsCreditsButton,
 			.icon = { &st::menuIconStats },
-			.onClick = [controller, self] {
-				controller->parentController()->showSection(
-					Info::BotEarn::Make(self));
+			.onClick = [controller] {
+				// StaticGram: the account has no proceeds / Fragment
+				// withdrawals, its Stars are shown in «Деньги».
+				StaticGram::Money::ShowMoneyBox(
+					controller->parentController(),
+					StaticGram::Money::Kind::Stars);
 			},
 			.keywords = { u"statistics"_q },
 			.shown = std::move(statsShown),

@@ -72,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_privacy_security.h"
 #include "settings/sections/settings_shortcuts.h"
 #include "settings/sections/settings_websites.h"
+#include "staticgram/sg_money.h"
 #include "staticgram/sg_settings_boxes.h"
 #include "boxes/connection_box.h"
 #include "mainwindow.h"
@@ -1616,8 +1617,11 @@ void RegisterSettingsHandlers(Router &router) {
 			if (!ctx.controller) {
 				return Result::NeedsAuth;
 			}
-			const auto self = ctx.controller->session().user();
-			ctx.controller->showSection(Info::BotEarn::Make(self));
+			// StaticGram: no proceeds / Fragment withdrawals for accounts,
+			// the own Stars live in «Деньги».
+			StaticGram::Money::ShowMoneyBox(
+				ctx.controller,
+				StaticGram::Money::Kind::Stars);
 			return Result::Handled;
 		}},
 	});

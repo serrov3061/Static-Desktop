@@ -159,6 +159,10 @@ void InnerWidget::fill() {
 		Statistic::FixCacheForHighDPIChartWidget(container);
 	}
 	{
+		if (!data.revenueGraph.chart) {
+			// StaticGram: room under the layer title for the first header.
+			Ui::AddSkip(container);
+		}
 		AddHeader(container, tr::lng_bot_earn_overview_title);
 		Ui::AddSkip(container, st::channelEarnOverviewTitleSkip);
 
@@ -172,9 +176,11 @@ void InnerWidget::fill() {
 				line,
 				rpl::duplicate(value) | rpl::map(valueToString),
 				st::channelEarnOverviewMajorLabel);
+			// StaticGram: the star a bit taller than the amount digits and
+			// centred on them, not a small one stuck to the top.
 			const auto icon = Ui::CreateSingleStarWidget(
 				line,
-				majorLabel->height());
+				majorLabel->height() + st::lineWidth * 4);
 			const auto secondMinorLabel = Ui::CreateChild<Ui::FlatLabel>(
 				line,
 				std::move(
@@ -189,17 +195,20 @@ void InnerWidget::fill() {
 				line->widthValue(),
 				majorLabel->sizeValue()
 			) | rpl::on_next([=](int available, const QSize &size) {
-				line->resize(line->width(), size.height());
+				const auto height = std::max(size.height(), icon->height());
+				line->resize(line->width(), height);
+				icon->moveToLeft(0, (height - icon->height()) / 2);
 				majorLabel->moveToLeft(
 					icon->width() + st::channelEarnOverviewMinorLabelSkip,
-					majorLabel->y());
+					(height - size.height()) / 2);
 				secondMinorLabel->resizeToWidth(available
 					- size.width()
 					- icon->width());
 				secondMinorLabel->moveToLeft(
 					rect::right(majorLabel)
 						+ st::channelEarnOverviewSubMinorLabelPos.x(),
-					st::channelEarnOverviewSubMinorLabelPos.y());
+					st::channelEarnOverviewSubMinorLabelPos.y()
+						+ (height - size.height()) / 2);
 			}, majorLabel->lifetime());
 			Ui::ToggleChildrenVisibility(line, true);
 
@@ -226,39 +235,12 @@ void InnerWidget::fill() {
 			tr::lng_bot_earn_total);
 		Ui::AddSkip(container);
 		Ui::AddSkip(container);
-		Ui::AddDividerText(container, tr::lng_bot_earn_balance_about());
+		// StaticGram: our network has no Fragment withdrawals and no Ads,
+		// so neither the «used for ads or withdrawn» note nor the
+		// withdrawal block (amount field, «Withdraw all», «Buy Ads»,
+		// «using Fragment») are shown, only the balances and the history.
+		Ui::AddDivider(container);
 		Ui::AddSkip(container);
-	}
-	{
-		AddHeader(container, tr::lng_bot_earn_balance_title);
-		Ui::AddSkip(container);
-		auto dateValue = rpl::single(
-			data.nextWithdrawalAt
-		) | rpl::then(
-			_stateUpdated.events() | rpl::map([=] {
-				return _state.nextWithdrawalAt;
-			})
-		);
-		::Settings::AddWithdrawalWidget(
-			container,
-			_controller->parentController(),
-			peer(),
-			rpl::single(
-				data.buyAdsUrl
-			) | rpl::then(
-				_stateUpdated.events() | rpl::map([=] {
-					return _state.buyAdsUrl;
-				})
-			),
-			rpl::duplicate(availableBalanceValue),
-			rpl::duplicate(dateValue),
-			_state.isWithdrawalEnabled,
-			rpl::duplicate(
-				availableBalanceValue
-			) | rpl::map([=](CreditsAmount v) {
-				return v ? ToUsd(v, multiplier, kMinorLength) : QString();
-			}));
-		container->resizeToWidth(container->width());
 	}
 	if (BotStarRef::Join::Allowed(peer()) && !peer()->isSelf()) {
 		const auto button = BotStarRef::AddViewListButton(
