@@ -128,6 +128,7 @@ jobs:
           -D CMAKE_BUILD_TYPE=Release \
           -D TDESKTOP_API_TEST=ON \
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON \
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF \
           $DEFINE
 
       - name: Count ccache misses.
