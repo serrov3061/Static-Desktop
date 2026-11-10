@@ -1851,12 +1851,15 @@ void BannerBox(
 			finish(error, true);
 		}));
 	};
+	// Two pills in the right-aligned row and the close cross in the
+	// title: three pills (with «Close») did not fit the box width and the
+	// left «Remove» one ran into the others.
+	box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
 	box->addButton(
 		tr::lng_sg_banner_choose(),
 		choose,
 		Mokagram::BoxParts::PillActive());
-	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
-	box->addLeftButton(
+	box->addButton(
 		tr::lng_sg_banner_remove(),
 		remove,
 		Mokagram::BoxParts::PillAttention());
