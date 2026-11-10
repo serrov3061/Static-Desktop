@@ -545,11 +545,56 @@ void EnsureSideReadable(
 	}
 }
 
+// StaticGram: a very light accent (white / light grey chosen in the
+// accent picker or taken from the system) left the white text and icons
+// on accent fills unreadable: the active chat row, unread badges, «New»
+// badges, switches, the add-account circle. Such accent fills are
+// darkened just enough for the white on top of them; ordinary accents
+// (blue, purple, green, ...) are far above the threshold and stay as is.
+void EnsureAccentUnderLightText(const style::palette &palette) {
+	constexpr auto kTooLight = 2.2;
+	constexpr auto kEnough = 3.;
+	const auto fg = palette.windowFgActive()->c;
+	if (CountContrast(fg, QColor(0, 0, 0))
+			< CountContrast(fg, QColor(255, 255, 255))) {
+		return; // Dark text on the accent, nothing to do.
+	}
+	const auto fills = std::array<Getter, 8>{
+		&P::windowBgActive,
+		&P::activeButtonBg,
+		&P::activeButtonBgOver,
+		&P::dialogsBgActive,
+		&P::dialogsRippleBgActive,
+		&P::dialogsUnreadBg,
+		&P::dialogsUnreadBgOver,
+		&P::mainMenuCoverBg, // The main menu switches' on track.
+	};
+	for (const auto getter : fills) {
+		const auto &color = (palette.*getter)();
+		const auto now = color->c;
+		if (ContrastOver(fg, now) >= kTooLight) {
+			continue;
+		}
+		const auto lab = ToLab(now);
+		const auto chroma = Chroma(lab);
+		const auto hue = Hue(lab);
+		for (auto step = 1; step <= kSteps; ++step) {
+			auto darker = Make(lab.lightness - step * kStep, chroma, hue, false);
+			darker.setAlpha(now.alpha());
+			if (ContrastOver(fg, darker) >= kEnough) {
+				Set(color, darker);
+				break;
+			}
+		}
+	}
+}
+
 } // namespace
 
 void EnsureBubblesReadable(
 		const style::palette &palette,
 		const BubblesReadabilityArgs &args) {
+	EnsureAccentUnderLightText(palette);
 	EnsureSideReadable(palette, Incoming(), args, false);
 	EnsureSideReadable(palette, Outgoing(), args, true);
 }
