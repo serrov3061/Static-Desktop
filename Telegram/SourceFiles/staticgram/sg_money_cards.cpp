@@ -33,7 +33,7 @@ namespace {
 constexpr auto kCardRatio = 0.6;
 constexpr auto kSwipeThreshold = 0.15;
 constexpr auto kOverscroll = 0.2;
-constexpr auto kAnimationDuration = crl::time(220);
+constexpr auto kAnimationDuration = crl::time(280);
 constexpr auto kCardsCount = 2;
 
 struct StockLook {
@@ -379,6 +379,7 @@ CardsPager::CardsPager(
 	Kind initial)
 : RpWidget(parent)
 , _index(IndexByKind(initial))
+, _settled(IndexByKind(initial))
 , _position(IndexByKind(initial)) {
 	const auto repaint = [=] { update(); };
 	_faces[0] = std::make_unique<CardFace>(user, Kind::Gram, repaint);
@@ -419,6 +420,10 @@ Kind CardsPager::kind() const {
 
 rpl::producer<Kind> CardsPager::kindValue() const {
 	return _index.value() | rpl::map(KindByIndex);
+}
+
+rpl::producer<Kind> CardsPager::settledKindValue() const {
+	return _settled.value() | rpl::map(KindByIndex);
 }
 
 int CardsPager::cardWidth() const {
@@ -468,13 +473,22 @@ int CardsPager::indexAt(QPoint point) const {
 
 void CardsPager::paintEvent(QPaintEvent *e) {
 	auto p = QPainter(this);
-	const auto visible = rect();
+	// StaticGram: a clipped pager, the neighbour card does not peek out
+	// at the box edge and slides in only inside the card slot.
+	const auto &padding = st::sgMoneyCardsPadding;
+	const auto visible = QRect(
+		padding.left(),
+		0,
+		cardWidth(),
+		padding.top() + cardHeight());
+	p.setClipRect(visible);
 	for (auto i = 0; i != kCardsCount; ++i) {
 		const auto card = cardRect(i, _position);
 		if (card.intersects(visible)) {
 			_faces[i]->paint(p, card, i == _index.current());
 		}
 	}
+	p.setClipping(false);
 
 	auto hq = PainterHighQualityEnabler(p);
 	const auto dots = dotsRect();
@@ -568,13 +582,17 @@ void CardsPager::animateTo(int index) {
 	_index = index;
 	if (std::abs(from - index) < 0.001) {
 		_position = index;
+		_settled = index;
 		update();
 		return;
 	}
 	_animation.start([=] {
 		_position = _animation.value(index);
+		if (!_animation.animating()) {
+			_settled = index;
+		}
 		update();
-	}, from, index, kAnimationDuration, anim::easeOutCirc);
+	}, from, index, kAnimationDuration, anim::easeOutCubic);
 }
 
 } // namespace StaticGram::Money

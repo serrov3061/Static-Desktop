@@ -18,10 +18,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "main/session/session_show.h"
 #include "mokagram/ui/mokagram_box_parts.h"
+#include "staticgram/sg_box_parts.h"
 #include "staticgram/sg_money_cards.h"
 #include "ui/image/image.h"
 #include "ui/layers/generic_box.h"
 #include "ui/painter.h"
+#include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/discrete_sliders.h"
 #include "ui/widgets/labels.h"
@@ -1038,6 +1040,9 @@ void PurchaseBox(
 	box->setStyle(PillButtonsBox());
 	RoundLayer(box);
 	box->setWidth(st::boxWideWidth);
+	// StaticGram: the title in the box header, so the close cross sits in
+	// its usual place next to it and not over the card corner.
+	box->setTitle(tr::lng_sg_cards_promo_title());
 	box->addTopButton(st::boxTitleClose, [=] { box->closeBox(); });
 
 	const auto container = box->verticalLayout();
@@ -1047,24 +1052,23 @@ void PurchaseBox(
 	container->add(
 		object_ptr<Ui::FlatLabel>(
 			container,
-			tr::lng_sg_cards_promo_title(),
-			st::sgCardPromoTitle),
-		st::sgMoneyAboutPadding,
-		style::al_top);
-	container->add(
-		object_ptr<Ui::FlatLabel>(
-			container,
 			tr::lng_sg_cards_promo_text(),
 			st::sgMoneyAboutLabel),
 		st::sgMoneyAboutPadding,
 		style::al_top);
 	const auto weak = base::make_weak(controller);
-	box->addButton(tr::lng_sg_cards_promo_button(), [=] {
-		box->closeBox();
-		if (const auto strong = weak.get()) {
-			OpenCardsPurchase(strong);
-		}
-	}, PillActive());
+	// A full-width main button under the text instead of a small pill.
+	StaticGram::BoxParts::AddMainButton(
+		container,
+		tr::lng_sg_cards_promo_button(),
+		[=] {
+			box->closeBox();
+			if (const auto strong = weak.get()) {
+				OpenCardsPurchase(strong);
+			}
+		},
+		6);
+	Ui::AddSkip(container);
 }
 
 } // namespace

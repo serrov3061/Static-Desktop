@@ -67,6 +67,8 @@ public:
 
 	[[nodiscard]] Kind kind() const;
 	[[nodiscard]] rpl::producer<Kind> kindValue() const;
+	// The kind once the slide to it has finished (for heavy content).
+	[[nodiscard]] rpl::producer<Kind> settledKindValue() const;
 	[[nodiscard]] int64 balance(Kind kind) const;
 
 protected:
@@ -87,6 +89,7 @@ private:
 
 	std::array<std::unique_ptr<CardFace>, 2> _faces;
 	rpl::variable<int> _index = 0;
+	rpl::variable<int> _settled = 0;
 	float64 _position = 0.;
 	Ui::Animations::Simple _animation;
 	std::optional<QPoint> _pressed;

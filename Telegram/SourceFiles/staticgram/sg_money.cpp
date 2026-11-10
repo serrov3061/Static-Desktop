@@ -479,17 +479,25 @@ void MoneyBox(
 		Kind kind = Kind::Gram;
 	};
 	const auto shown = box->lifetime().make_state<Shown>();
+	// StaticGram: the list is rebuilt once the card slide has finished
+	// (not in the middle of it), and the body keeps its height while the
+	// new list loads, so the box does not jump.
 	rpl::combine(
 		rpl::single(0) | rpl::then(tabs->sectionActivated()),
-		pager->kindValue()
+		pager->settledKindValue()
 	) | rpl::on_next([=](int tab, Kind kind) {
 		if (shown->tab == tab && (tab != 0 || shown->kind == kind)) {
 			return;
 		}
 		shown->tab = tab;
 		shown->kind = kind;
+		const auto keep = body->height();
 		body->clear();
 		const auto inner = body->add(object_ptr<Ui::VerticalLayout>(body));
+		const auto holder = body->add(object_ptr<Ui::RpWidget>(body));
+		inner->heightValue() | rpl::on_next([=](int height) {
+			holder->resize(holder->width(), std::max(keep - height, 0));
+		}, holder->lifetime());
 		if (tab == 0) {
 			FillTransactions(inner, controller, kind);
 		} else {
