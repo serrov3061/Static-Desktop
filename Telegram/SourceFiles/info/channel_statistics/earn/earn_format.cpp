@@ -56,19 +56,26 @@ QString MinorPart(EarnInt value) {
 }
 
 QString MinorPart(CreditsAmount value) {
-	static const int DecimalPointLength = DecimalPoint.length();
-
-	const auto fractional = std::abs(int(value.value() * 100)) % 100;
-	auto result = QString(DecimalPointLength + 2, Qt::Uninitialized);
-
-	for (int i = 0; i < DecimalPointLength; ++i) {
-		result[i] = DecimalPoint[i];
+	// StaticGram: two decimals as before, but an amount under one shows
+	// its significant digits (Android SGAmounts): 0.0005, 0.000000001,
+	// instead of a wrong "0.00".
+	const auto nano = std::abs(value.nano()) % 1'000'000'000;
+	const auto digits = QString::number(nano).rightJustified(
+		kMinorPartLength,
+		kZero);
+	auto keep = 2;
+	if (!value.whole() && nano) {
+		auto first = 0;
+		while (first < kMinorPartLength && digits[first] == kZero) {
+			++first;
+		}
+		keep = std::clamp(first + 2, 2, kMinorPartLength);
 	}
-
-	result[DecimalPointLength] = QChar('0' + fractional / 10);
-	result[DecimalPointLength + 1] = QChar('0' + fractional % 10);
-
-	return result;
+	auto part = digits.left(keep);
+	while (part.size() > 2 && part.endsWith(kZero)) {
+		part.chop(1);
+	}
+	return DecimalPoint + part;
 }
 
 QString ToUsd(
