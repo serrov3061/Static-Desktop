@@ -282,6 +282,13 @@ void TranslateBar::setup(not_null<History*> history) {
 	button->resize(0, st::historyTranslateBarHeight);
 	button->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
+		const auto parent = _wrap.parentWidget();
+		if (parent && parent->property("sg-square-strips").toBool()) {
+			// StaticGram: one rounded card for the header and all the bars
+			// under it, rounded at its bottom by the history widget.
+			QPainter(button).fillRect(clip, st::historyComposeButtonBg);
+			return;
+		}
 		// Mokagram: плашка перевода как музыка в профиле, скруглена снизу.
 		auto p = QPainter(button);
 		button->setProperty("moka-strip", true);

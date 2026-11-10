@@ -597,6 +597,13 @@ private:
 	[[nodiscard]] bool textExceedsMaxSize() const;
 	void orderWidgets();
 
+	// StaticGram: rounded corners of the chat top card and the compose area.
+	void setupStaticGramCorners();
+	void updateStaticGramCorners();
+	void paintStaticGramCorner(
+		not_null<Ui::RpWidget*> corner,
+		QPointF center) const;
+
 	[[nodiscard]] InlineBotQuery parseInlineBotQuery() const;
 
 	void clearInlineBot();
@@ -1042,6 +1049,7 @@ private:
 	ChatHelpers::RichPasteOfferThrottle _richPasteOfferThrottle;
 
 	object_ptr<Ui::PlainShadow> _topShadow;
+	std::vector<not_null<Ui::RpWidget*>> _sgCorners;
 	bool _inGrab = false;
 
 	int _topDelta = 0;

@@ -35,6 +35,13 @@ PinnedBar::PinnedBar(
 
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
+		const auto parent = _wrap.parentWidget();
+		if (parent && parent->property("sg-square-strips").toBool()) {
+			// StaticGram: one rounded card for the header and all the bars
+			// under it, rounded at its bottom by the history widget.
+			QPainter(_wrap.entity()).fillRect(clip, st::historyComposeButtonBg);
+			return;
+		}
 		// Mokagram: закреп как полоса музыки в профиле: плашка со скруглёнными нижними углами.
 		auto p = QPainter(_wrap.entity());
 		auto hq = PainterHighQualityEnabler(p);

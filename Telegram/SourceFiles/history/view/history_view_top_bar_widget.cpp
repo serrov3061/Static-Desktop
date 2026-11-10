@@ -535,8 +535,13 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		: -st::topBarHeight;
 	const auto slidingTop = std::max(selectedButtonsTop, searchFieldTop);
 
-	// Mokagram: шапка чата со скруглёнными нижними углами, как карточка в профиле.
-	{
+	if (property("sg-square-bottom").toBool()) {
+		// StaticGram: the history widget rounds the bottom corners of the
+		// whole top card (this header and the bars under it) itself, so
+		// the header is a plain rectangle there.
+		p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	} else {
+		// Mokagram: шапка чата со скруглёнными нижними углами, как карточка в профиле.
 		auto hq = PainterHighQualityEnabler(p);
 		// Под скруглёнными углами шапки виден цвет плашки ниже (как музыка в профиле).
 		auto stripBelow = false;

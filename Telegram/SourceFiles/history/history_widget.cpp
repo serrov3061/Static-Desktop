@@ -196,7 +196,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "main/session/send_as_peers.h"
 #include "webrtc/webrtc_environment.h"
+#include "mainwidget.h" // StaticGram: backgroundFromY for the corners.
 #include "window/notifications_manager.h"
+#include "window/section_widget.h"
 #include "window/window_adaptive.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
@@ -237,6 +239,8 @@ constexpr auto kShowMembersDropdownTimeoutMs = 300;
 constexpr auto kDisplayEditTimeWarningMs = 300 * 1000;
 constexpr auto kFullDayInMs = 86400 * 1000;
 constexpr auto kSaveDraftTimeout = crl::time(1000);
+// StaticGram: radius of the chat top card and compose area corners.
+constexpr auto kStaticGramCornerRadius = 22;
 constexpr auto kSaveDraftAnywayTimeout = 5 * crl::time(1000);
 constexpr auto kSaveCloudDraftIdleTimeout = 14 * crl::time(1000);
 constexpr auto kRefreshSlowmodeLabelTimeout = crl::time(200);
@@ -706,6 +710,7 @@ HistoryWidget::HistoryWidget(
 		effect->setOpacity(0.);
 		_topShadow->setGraphicsEffect(effect);
 	}
+	setupStaticGramCorners();
 
 	_attachDragAreas = DragArea::SetupDragAreaToContainer(
 		this,
@@ -2267,6 +2272,9 @@ void HistoryWidget::orderWidgets() {
 		_subsectionTabs->raise();
 	}
 	_topShadow->raise();
+	for (const auto &corner : _sgCorners) {
+		corner->raise();
+	}
 	if (_autocomplete) {
 		_autocomplete->raise();
 	}
@@ -2293,6 +2301,94 @@ void HistoryWidget::orderWidgets() {
 	}
 	_attachDragAreas.document->raise();
 	_attachDragAreas.photo->raise();
+}
+
+void HistoryWidget::setupStaticGramCorners() {
+	// StaticGram: the chat header with all the bars under it (pinned,
+	// translate, contact status, group call, requests, ...) is one card
+	// with rounded bottom corners, and the compose area (reply / edit
+	// preview, field, join / unblock buttons, bot keyboard) has rounded
+	// top corners. The parts themselves paint plain rectangles; four small
+	// overlays put the chat wallpaper back outside an antialiased arc, so
+	// whatever bar is the last (or first) one gets the rounding.
+	_topBar->setProperty("sg-square-bottom", true);
+	_topBars->setProperty("sg-square-strips", true);
+	for (auto i = 0; i != 4; ++i) {
+		const auto right = (i % 2) == 1;
+		const auto top = (i < 2);
+		const auto corner = Ui::CreateChild<Ui::RpWidget>(this);
+		corner->setAttribute(Qt::WA_TransparentForMouseEvents);
+		corner->resize(kStaticGramCornerRadius, kStaticGramCornerRadius);
+		corner->paintRequest() | rpl::on_next([=] {
+			if (_showAnimation || !_history) {
+				return;
+			} else if (top && _topBar->isHidden()) {
+				return;
+			} else if (!top && isRecording()) {
+				// The record button circle may cover the corner.
+				return;
+			}
+			const auto size = float64(kStaticGramCornerRadius);
+			paintStaticGramCorner(
+				corner,
+				QPointF(right ? 0. : size, top ? 0. : size));
+		}, corner->lifetime());
+		_sgCorners.push_back(corner);
+	}
+	_scroll->geometryValue() | rpl::on_next([=] {
+		updateStaticGramCorners();
+	}, lifetime());
+}
+
+void HistoryWidget::updateStaticGramCorners() {
+	if (_sgCorners.size() != 4) {
+		return;
+	}
+	const auto size = kStaticGramCornerRadius;
+	const auto scroll = _scroll->geometry();
+	const auto composeTop = scroll.y() + scroll.height();
+	_sgCorners[0]->move(scroll.x(), scroll.y() - size);
+	_sgCorners[1]->move(width() - size, scroll.y() - size);
+	_sgCorners[2]->move(0, composeTop);
+	_sgCorners[3]->move(width() - size, composeTop);
+	for (const auto &corner : _sgCorners) {
+		corner->update();
+	}
+}
+
+void HistoryWidget::paintStaticGramCorner(
+		not_null<Ui::RpWidget*> corner,
+		QPointF center) const {
+	const auto ratio = style::DevicePixelRatio();
+	const auto size = corner->size();
+	auto image = QImage(size * ratio, QImage::Format_ARGB32_Premultiplied);
+	image.setDevicePixelRatio(ratio);
+	image.fill(Qt::transparent);
+	{
+		// The wallpaper exactly as HistoryWidget::paintEvent puts it here.
+		auto q = QPainter(&image);
+		const auto content = controller()->content();
+		const auto fromy = content->backgroundFromY();
+		const auto position = corner->pos();
+		q.translate(-position.x(), fromy - position.y());
+		Window::SectionWidget::PaintBackground(
+			q,
+			controller()->currentChatTheme(),
+			QSize(width(), content->height()),
+			QRect(position, size).translated(0, -fromy),
+			controller()->isGifPausedAtLeastFor(
+				Window::GifPauseReason::Any));
+		q.resetTransform();
+
+		// Cut out the card part inside the arc, with an antialiased edge.
+		auto hq = PainterHighQualityEnabler(q);
+		q.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+		q.setPen(Qt::NoPen);
+		q.setBrush(QColor(0, 0, 0));
+		const auto radius = float64(size.width());
+		q.drawEllipse(center, radius, radius);
+	}
+	QPainter(corner).drawImage(0, 0, image);
 }
 
 void HistoryWidget::toggleChooseChatTheme(
@@ -11511,15 +11607,9 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 	// Mokagram: верхние углы панели ввода скруглены.
-	{
-		auto hq = PainterHighQualityEnabler(p);
-		p.setPen(Qt::NoPen);
-		p.setBrush(st::historyReplyBg);
-		p.drawRoundedRect(
-			myrtlrect(0, backy, width(), backh + 56),
-			28,
-			28);
-	}
+	// StaticGram: a plain rectangle, the top corners are rounded by the
+	// corner overlays with the same radius as the top card.
+	p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
