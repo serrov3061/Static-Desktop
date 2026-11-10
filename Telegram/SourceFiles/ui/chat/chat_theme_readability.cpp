@@ -599,6 +599,10 @@ void EnsureBubblesReadable(
 	EnsureSideReadable(palette, Outgoing(), args, true);
 }
 
+void EnsureAccentFillsReadable(const style::palette &palette) {
+	EnsureAccentUnderLightText(palette);
+}
+
 bool IsDarkPalette(const style::palette &palette) {
 	const auto background = palette.windowBg()->c;
 	return CountContrast(background, QColor(0, 0, 0))

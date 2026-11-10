@@ -25,6 +25,10 @@ void EnsureBubblesReadable(
 	const style::palette &palette,
 	const BubblesReadabilityArgs &args);
 
+// StaticGram: darkens accent fills too light for the white text on them
+// (a white / light grey accent). Also called for a palette from cache.
+void EnsureAccentFillsReadable(const style::palette &palette);
+
 [[nodiscard]] bool IsDarkPalette(const style::palette &palette);
 
 [[nodiscard]] QColor EnsurePeerNameReadable(

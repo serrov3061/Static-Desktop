@@ -77,11 +77,6 @@ namespace {
 
 using EarnInt = Data::EarnInt;
 
-[[nodiscard]] bool WithdrawalEnabled(not_null<Main::Session*> session) {
-	const auto key = u"channel_revenue_withdrawal_enabled"_q;
-	return session->appConfig().get<bool>(key, false);
-}
-
 void ShowMenu(not_null<Ui::GenericBox*> box, const QString &text) {
 	const auto menu = Ui::CreateChild<Ui::PopupMenu>(box.get());
 	menu->addAction(tr::lng_context_copy_link(tr::now), [=] {
@@ -400,7 +395,6 @@ void InnerWidget::fill() {
 	};
 
 	const auto session = &_peer->session();
-	const auto withdrawalEnabled = WithdrawalEnabled(session);
 
 	const auto addAboutWithLearn = [&](const tr::phrase<lngtag_link> &text) {
 		auto label = object_ptr<Ui::FlatLabel>(
@@ -868,89 +862,13 @@ void InnerWidget::fill() {
 
 		Ui::AddSkip(container);
 
-		const auto &stButton = st::defaultActiveButton;
-		const auto button = container->add(
-			object_ptr<Ui::RoundButton>(
-				container,
-				rpl::never<QString>(),
-				stButton),
-			st::boxRowPadding,
-			style::al_justify);
-		button->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
-
-		const auto label = Ui::CreateChild<Ui::FlatLabel>(
-			button,
-			tr::lng_channel_earn_balance_button(tr::now),
-			st::channelEarnSemiboldLabel);
-		label->setTextColorOverride(stButton.textFg->c);
-		label->setAttribute(Qt::WA_TransparentForMouseEvents);
-		rpl::combine(
-			button->sizeValue(),
-			label->sizeValue()
-		) | rpl::on_next([=](const QSize &b, const QSize &l) {
-			label->moveToLeft(
-				(b.width() - l.width()) / 2,
-				(b.height() - l.height()) / 2);
-		}, label->lifetime());
-
-		const auto colorText = [=](float64 value) {
-			label->setTextColorOverride(
-				anim::with_alpha(
-					stButton.textFg->c,
-					anim::interpolateF(.5, 1., value)));
-		};
-		colorText(withdrawalEnabled ? 1. : 0.);
-		button->setAttribute(
-			Qt::WA_TransparentForMouseEvents,
-			!withdrawalEnabled && (value.value() > 0.01));
-
-		Api::HandleWithdrawalButton(
-			{ .currencyReceiver = _peer },
-			button,
-			_controller->uiShow());
-		Ui::ToggleChildrenVisibility(button, true);
-
-		Ui::AddSkip(container);
-		Ui::AddSkip(container);
-		addAboutWithLearn(withdrawalEnabled
-			? tr::lng_channel_earn_balance_about
-			: tr::lng_channel_earn_balance_about_temp);
+		// StaticGram: no withdrawal button and no «using Fragment» note,
+		// our network has no Fragment withdrawals.
 		Ui::AddSkip(container);
 	}
-	if (creditsData.availableBalance.value() > 0) {
-		AddHeader(container, tr::lng_bot_earn_balance_title);
-		auto availableBalanceValue = rpl::single(
-			creditsData.availableBalance
-		) | rpl::then(
-			_stateUpdated.events() | rpl::map([=] {
-				return _state.creditsEarn.availableBalance;
-			})
-		);
-		auto dateValue = rpl::single(
-			creditsData.nextWithdrawalAt
-		) | rpl::then(
-			_stateUpdated.events() | rpl::map([=] {
-				return _state.creditsEarn.nextWithdrawalAt;
-			})
-		);
-		::Settings::AddWithdrawalWidget(
-			container,
-			_controller->parentController(),
-			_peer,
-			rpl::single(
-				creditsData.buyAdsUrl
-			) | rpl::then(
-				_stateUpdated.events() | rpl::map([=] {
-					return _state.creditsEarn.buyAdsUrl;
-				})
-			),
-			rpl::duplicate(availableBalanceValue),
-			rpl::duplicate(dateValue),
-			_state.creditsEarn.isWithdrawalEnabled,
-			rpl::duplicate(
-				availableBalanceValue
-			) | rpl::map(creditsToUsdMap));
-	}
+	// StaticGram: no Stars withdrawal block (amount, «Withdraw all»,
+	// «Buy Ads», «using Fragment»): there are no Fragment withdrawals and
+	// no Ads in our network.
 
 	if (Info::BotStarRef::Join::Allowed(_peer)) {
 		const auto button = Info::BotStarRef::AddViewListButton(

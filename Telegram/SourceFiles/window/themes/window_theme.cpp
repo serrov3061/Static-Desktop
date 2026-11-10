@@ -440,6 +440,8 @@ bool InitializeFromCache(
 	if (!style::main_palette::load(cache.colors)) {
 		return false;
 	}
+	// StaticGram: palettes cached before the light accent fix.
+	Ui::EnsureAccentFillsReadable(*style::main_palette::get());
 	Background()->saveAdjustableColors();
 	if (!background.isNull()) {
 		applyBackground(std::move(background), cache.tiled, nullptr);

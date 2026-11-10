@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/session/session_show.h"
 #include "main/main_session.h"
 #include "mainwidget.h"
+#include "mokagram/ui/mokagram_box_parts.h"
 #include "ui/effects/loading_element.h"
 #include "ui/effects/outline_segments.h"
 #include "ui/effects/round_checkbox.h"
@@ -107,6 +108,27 @@ PeerListBox::PeerListBox(
 	Expects(_controller != nullptr);
 }
 
+namespace {
+
+// StaticGram: the box search on a rounded mokaGram card (the way the
+// forward box does it), instead of a flat square strip.
+[[nodiscard]] const style::MultiSelect &CardSearchSt() {
+	static const auto result = [] {
+		using Mokagram::BoxParts::kOuterSide;
+		auto result = st::defaultMultiSelect;
+		result.bg = st::transparent;
+		result.padding = style::margins(
+			kOuterSide + 12,
+			12,
+			kOuterSide + 8,
+			12);
+		return result;
+	}();
+	return result;
+}
+
+} // namespace
+
 void PeerListBox::createMultiSelect() {
 	Expects(_select == nullptr);
 
@@ -115,9 +137,15 @@ void PeerListBox::createMultiSelect() {
 		this,
 		(_controller->selectSt()
 			? *_controller->selectSt()
-			: st::defaultMultiSelect),
+			: CardSearchSt()),
 		placeholder ? std::move(placeholder) : tr::lng_participant_filter());
 	_select.create(this, std::move(entity));
+	if (!_controller->selectSt()) {
+		_select->geometryValue(
+		) | rpl::on_next([=] {
+			update();
+		}, _select->lifetime());
+	}
 	_select->heightValue(
 	) | rpl::on_next(
 		[this] { updateScrollSkips(); },
@@ -352,6 +380,16 @@ void PeerListBox::paintEvent(QPaintEvent *e) {
 	for (const auto &rect : e->region()) {
 		if (const auto part = rect.intersected(fill); !part.isEmpty()) {
 			p.fillRect(part, bg);
+		}
+	}
+	if (_select && !_select->isHidden() && !_controller->selectSt()) {
+		using Mokagram::BoxParts::kOuterSide;
+		const auto area = _select->geometry();
+		const auto card = area.marginsRemoved(
+			{ kOuterSide, 6, kOuterSide, 6 });
+		p.fillRect(area, getDelegate()->style().bg);
+		if (card.height() > 0) {
+			Mokagram::BoxParts::PaintCard(p, card);
 		}
 	}
 }
