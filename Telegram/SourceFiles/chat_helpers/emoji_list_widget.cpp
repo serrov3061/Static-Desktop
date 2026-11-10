@@ -2422,7 +2422,11 @@ void EmojiListWidget::paint(
 		&& !_searchRequestTimer.isActive()) {
 		paintEmptySearchResults(p);
 	}
-	const auto creatorBadgeText = tr::lng_stickers_creator_badge(tr::now);
+	// StaticGram: no «edit» creator badge next to the pack title, it looked
+	// like a button but is only a label (and there is no @stickers bot in
+	// our network). A click on the pack title still opens the pack box
+	// with the creator's rename / reorder / delete actions.
+	const auto creatorBadgeText = QString();
 	const auto groupBadgeText = tr::lng_emoji_group_badge(tr::now);
 	const auto &badgeFont = st::stickersHeaderBadgeFont;
 	enumerateSections([&](const SectionInfo &info) {

@@ -1707,7 +1707,7 @@ void StickersListWidget::paintStickers(Painter &p, QRect clip) {
 				: tr::lng_stickers_nothing_found(tr::now),
 			loading);
 	}
-	const auto badgeText = tr::lng_stickers_creator_badge(tr::now);
+	const auto badgeText = QString();
 	const auto &badgeFont = st::stickersHeaderBadgeFont;
 	const auto badgeWidth = badgeFont->width(badgeText);
 	enumerateSections([&](const SectionInfo &info) {
@@ -1878,8 +1878,11 @@ void StickersListWidget::paintStickers(Painter &p, QRect clip) {
 
 				widthForTitle -= remove.width();
 			}
+			// StaticGram: no «edit» creator badge (see emoji_list_widget),
+			// a click on the pack title opens the pack box.
 			const auto amCreator = _features.openStickerSets
-				&& (set.flags & Data::StickersSetFlag::AmCreator);
+				&& (set.flags & Data::StickersSetFlag::AmCreator)
+				&& !badgeText.isEmpty();
 			if (amCreator) {
 				widthForTitle -= badgeWidth
 					+ st::stickersFeaturedUnreadSkip
