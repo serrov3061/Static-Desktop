@@ -452,6 +452,62 @@ void MediaSlider::paintEvent(QPaintEvent *e) {
 		}
 		return;
 	}
+	if (_alwaysDisplayMarker
+		&& horizontal
+		&& _dividers.empty()
+		&& borderWidth <= 0) {
+		// StaticGram: a Material 3 slider for the sliders with an always
+		// shown handle (settings, volume, dimming, ...): a thicker rounded
+		// active track, a gap around a vertical pill handle, the inactive
+		// track after it. Media seek bars (marker on hover) keep their look.
+		const auto full = float64(width());
+		const auto track = std::min(
+			float64(height()),
+			float64(std::max(
+				_st.width,
+				int(base::SafeRound(_st.seekSize.height() * 0.4)))));
+		const auto y = (height() - track) / 2.;
+		const auto radius = track / 2.;
+		const auto center = markerFrom + value * markerLength;
+		const auto handleWidth = disabled
+			? 0.
+			: float64(std::max(st::lineWidth * 4, 4));
+		const auto gap = disabled ? 0. : float64(st::lineWidth * 3);
+		const auto activeRight = center - handleWidth / 2. - gap;
+		const auto inactiveLeft = center + handleWidth / 2. + gap;
+		p.setPen(Qt::NoPen);
+		if (activeRight > 0.5) {
+			p.setBrush(activeFg);
+			p.drawRoundedRect(
+				QRectF(0., y, activeRight, track),
+				radius,
+				radius);
+		}
+		if (full - inactiveLeft > 0.5) {
+			p.setBrush(inactiveFg);
+			p.drawRoundedRect(
+				QRectF(inactiveLeft, y, full - inactiveLeft, track),
+				radius,
+				radius);
+		}
+		if (handleWidth > 0.) {
+			const auto handleHeight = std::min(
+				float64(height()),
+				_st.seekSize.height() * (0.85 + 0.15 * over));
+			p.setBrush(_overrides.seekFg
+				? QBrush(*_overrides.seekFg)
+				: activeFg);
+			p.drawRoundedRect(
+				QRectF(
+					center - handleWidth / 2.,
+					(height() - handleHeight) / 2.,
+					handleWidth,
+					handleHeight),
+				handleWidth / 2.,
+				handleWidth / 2.);
+		}
+		return;
+	}
 	const auto gapStyle = (_dividerStyle == DividerStyle::Gaps);
 	if (gapStyle) {
 		rebuildDividerExclusion();

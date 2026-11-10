@@ -604,6 +604,11 @@ infoBlockHeaderPosition: point(79px, 17px);
 
 infoProfileToggle: Toggle(defaultToggle) {
 	untoggledFg: menuIconFg;
+	// StaticGram: Material 3 switch proportions (the M3 painting itself is
+	// in lib_ui ToggleView): a 44x26 track instead of 34x20.
+	border: 2px;
+	diameter: 22px;
+	width: 18px;
 }
 infoProfileToggleOver: Toggle(infoProfileToggle) {
 	untoggledFg: menuIconFgOver;
