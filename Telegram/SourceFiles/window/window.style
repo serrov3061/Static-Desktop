@@ -18,6 +18,87 @@ windowBigDefaultWidth: 1024px;
 windowBigDefaultHeight: 768px;
 
 windowShellMinWidth: 240px;
+
+// StaticGram: the custom title of the main window (Windows / Linux) on the
+// chat header colour instead of titleBg / titleButtonBg, so the title strip
+// and its idle buttons do not stand out as a separate lighter or darker
+// band. Hover / press keep the theme's over colours, close hover stays red.
+sgMainWindowTitle: WindowTitle(defaultWindowTitle) {
+	bg: topBarBg;
+	bgActive: topBarBg;
+	shadow: false;
+	minimize: IconButton(windowTitleButton) {
+		icon: icon {
+			{ windowTitleButtonSize, topBarBg },
+			{ "title_button_minimize", titleButtonFg },
+		};
+		iconOver: icon {
+			{ windowTitleButtonSize, titleButtonBgOver },
+			{ "title_button_minimize", titleButtonFgOver },
+		};
+	}
+	minimizeIconActive: icon {
+		{ windowTitleButtonSize, topBarBg },
+		{ "title_button_minimize", titleButtonFgActive },
+	};
+	minimizeIconActiveOver: icon {
+		{ windowTitleButtonSize, titleButtonBgActiveOver },
+		{ "title_button_minimize", titleButtonFgActiveOver },
+	};
+	maximize: IconButton(windowTitleButton) {
+		icon: icon {
+			{ windowTitleButtonSize, topBarBg },
+			{ "title_button_maximize", titleButtonFg },
+		};
+		iconOver: icon {
+			{ windowTitleButtonSize, titleButtonBgOver },
+			{ "title_button_maximize", titleButtonFgOver },
+		};
+	}
+	maximizeIconActive: icon {
+		{ windowTitleButtonSize, topBarBg },
+		{ "title_button_maximize", titleButtonFgActive },
+	};
+	maximizeIconActiveOver: icon {
+		{ windowTitleButtonSize, titleButtonBgActiveOver },
+		{ "title_button_maximize", titleButtonFgActiveOver },
+	};
+	restoreIcon: icon {
+		{ windowTitleButtonSize, topBarBg },
+		{ "title_button_restore", titleButtonFg },
+	};
+	restoreIconOver: icon {
+		{ windowTitleButtonSize, titleButtonBgOver },
+		{ "title_button_restore", titleButtonFgOver },
+	};
+	restoreIconActive: icon {
+		{ windowTitleButtonSize, topBarBg },
+		{ "title_button_restore", titleButtonFgActive },
+	};
+	restoreIconActiveOver: icon {
+		{ windowTitleButtonSize, titleButtonBgActiveOver },
+		{ "title_button_restore", titleButtonFgActiveOver },
+	};
+	close: IconButton(windowTitleButtonClose) {
+		icon: icon {
+			{ windowTitleButtonSize, topBarBg },
+			{ "title_button_close", titleButtonCloseFg },
+		};
+		iconOver: icon {
+			{ windowTitleButtonSize, titleButtonCloseBgOver },
+			{ "title_button_close", titleButtonCloseFgOver },
+		};
+	}
+	closeIconActive: icon {
+		{ windowTitleButtonSize, topBarBg },
+		{ "title_button_close", titleButtonCloseFgActive },
+	};
+	closeIconActiveOver: icon {
+		{ windowTitleButtonSize, titleButtonCloseBgActiveOver },
+		{ "title_button_close", titleButtonCloseFgActiveOver },
+	};
+}
+
 windowShellMinHeight: 160px;
 windowShellLoading: InfiniteRadialAnimation(defaultInfiniteRadialAnimation) {
 	size: size(32px, 32px);

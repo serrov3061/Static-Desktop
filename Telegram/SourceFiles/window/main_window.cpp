@@ -420,6 +420,9 @@ MainWindow::MainWindow(not_null<Controller*> controller)
 	}));
 }))
 , _body(body()) {
+	// StaticGram: the custom title on the chat header colour.
+	setTitleStyle(st::sgMainWindowTitle);
+
 	style::PaletteChanged(
 	) | rpl::on_next([=] {
 		updatePalette();
