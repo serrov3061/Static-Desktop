@@ -429,6 +429,7 @@ public:
 	void setCancelledCallback(Fn<void()> callback);
 	void setFocusedChangedCallback(Fn<void(bool focused)> callback);
 	void setCancelButtonShown(bool shown);
+	void setRoundedCard(const style::color &outerBg);
 
 	bool addItemInBunch(std::unique_ptr<Item> item);
 	void finishItemsBunch(AddItemWay way);
@@ -500,6 +501,7 @@ private:
 	object_ptr<Ui::InputField> _field;
 	object_ptr<Ui::CrossButton> _cancel;
 	bool _cancelShown = true;
+	const style::color *_cardOuterBg = nullptr;
 
 	int _newHeight = 0;
 	Ui::Animations::Simple _height;
@@ -596,6 +598,10 @@ void MultiSelect::setResizedCallback(Fn<void()> callback) {
 
 void MultiSelect::setCancelButtonShown(bool shown) {
 	_inner->setCancelButtonShown(shown);
+}
+
+void MultiSelect::setRoundedCard(const style::color &outerBg) {
+	_inner->setRoundedCard(outerBg);
 }
 
 void MultiSelect::setInnerFocus() {
@@ -755,6 +761,11 @@ void MultiSelect::Inner::setFocusedChangedCallback(
 	_focusedChangedCallback = std::move(callback);
 }
 
+void MultiSelect::Inner::setRoundedCard(const style::color &outerBg) {
+	_cardOuterBg = &outerBg;
+	update();
+}
+
 void MultiSelect::Inner::setCancelButtonShown(bool shown) {
 	if (_cancelShown == shown) {
 		return;
@@ -844,7 +855,17 @@ void MultiSelect::Inner::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
 	auto paintRect = e->rect();
-	p.fillRect(paintRect, _st.bg);
+	if (_cardOuterBg) {
+		p.fillRect(paintRect, *_cardOuterBg);
+		const auto card = rect().marginsRemoved({ 4, 2, 4, 2 });
+		const auto radius = std::min(16, card.height() / 2);
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::windowBg);
+		p.drawRoundedRect(card, radius, radius);
+	} else {
+		p.fillRect(paintRect, _st.bg);
+	}
 
 	auto offset = QPoint(
 		style::RightToLeft() ? _st.padding.right() : _st.padding.left(),

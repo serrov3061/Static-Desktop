@@ -1480,6 +1480,7 @@ void LanguageBox::prepare() {
 			topContainer,
 			st::defaultMultiSelect,
 			tr::lng_participant_filter()));
+	select->setRoundedCard(st::boxBg);
 	topContainer->resizeToWidth(st::boxWidth);
 
 	using namespace rpl::mappers;

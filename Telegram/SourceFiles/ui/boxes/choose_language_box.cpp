@@ -277,6 +277,7 @@ void ChooseLanguageBox(
 			box,
 			st::defaultMultiSelect,
 			tr::lng_participant_filter()));
+	multiSelect->setRoundedCard(st::boxBg);
 	box->setFocusCallback([=] { multiSelect->setInnerFocus(); });
 
 	const auto container = box->verticalLayout();

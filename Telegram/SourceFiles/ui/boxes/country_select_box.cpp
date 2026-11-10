@@ -169,6 +169,7 @@ rpl::producer<CountrySelectBox::Entry> CountrySelectBox::entryChosen() const {
 void CountrySelectBox::prepare() {
 	setTitle(tr::lng_country_select());
 
+	_select->setRoundedCard(st::boxBg);
 	_select->resizeToWidth(st::boxWidth);
 	_select->setQueryChangedCallback([=](const QString &query) {
 		applyFilterUpdate(query);

@@ -38,6 +38,10 @@ public:
 	void setResizedCallback(Fn<void()> callback);
 	void setCancelButtonShown(bool shown);
 
+	// StaticGram: the search on a rounded card (windowBg) drawn over the
+	// given surrounding colour, the box search look of mokaGram.
+	void setRoundedCard(const style::color &outerBg);
+
 	enum class AddItemWay {
 		Default,
 		SkipAnimation,

@@ -589,6 +589,55 @@ void EnsureAccentUnderLightText(const style::palette &palette) {
 	}
 }
 
+// StaticGram: close crosses and other glyphs that must stay visible over
+// the surface they are drawn on (the moka circles under the info layer
+// buttons are windowBgOver, reply / box crosses sit on the compose area /
+// box background). A glyph too close to its surface is moved away from
+// it in lightness, keeping the hue.
+void EnsureGlyphOver(
+		const style::palette &palette,
+		Getter glyph,
+		Getter surface) {
+	constexpr auto kTooClose = 2.;
+	constexpr auto kEnough = 3.;
+	const auto &color = (palette.*glyph)();
+	const auto now = color->c;
+	const auto under = (palette.*surface)()->c;
+	if (ContrastOver(now, under) >= kTooClose) {
+		return;
+	}
+	const auto lighten = (CountContrast(under, QColor(0, 0, 0))
+		< CountContrast(under, QColor(255, 255, 255)));
+	const auto lab = ToLab(now);
+	const auto chroma = Chroma(lab);
+	const auto hue = Hue(lab);
+	for (auto step = 1; step <= kSteps; ++step) {
+		const auto lightness = lab.lightness
+			+ (lighten ? step : -step) * kStep;
+		auto moved = Make(lightness, chroma, hue, false);
+		moved.setAlpha(now.alpha());
+		if (ContrastOver(moved, under) >= kEnough) {
+			Set(color, moved);
+			return;
+		}
+	}
+}
+
+void EnsureGlyphsReadable(const style::palette &palette) {
+	EnsureGlyphOver(palette, &P::boxTitleCloseFg, &P::windowBgOver);
+	EnsureGlyphOver(palette, &P::boxTitleCloseFgOver, &P::windowBgOver);
+	EnsureGlyphOver(palette, &P::boxTitleCloseFg, &P::boxBg);
+	EnsureGlyphOver(palette, &P::boxTitleCloseFgOver, &P::boxBg);
+	EnsureGlyphOver(
+		palette,
+		&P::historyReplyCancelFg,
+		&P::historyComposeAreaBg);
+	EnsureGlyphOver(
+		palette,
+		&P::historyComposeIconFg,
+		&P::historyComposeAreaBg);
+}
+
 } // namespace
 
 void EnsureBubblesReadable(
@@ -601,6 +650,7 @@ void EnsureBubblesReadable(
 
 void EnsureAccentFillsReadable(const style::palette &palette) {
 	EnsureAccentUnderLightText(palette);
+	EnsureGlyphsReadable(palette);
 }
 
 bool IsDarkPalette(const style::palette &palette) {

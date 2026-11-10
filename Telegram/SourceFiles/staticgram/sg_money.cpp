@@ -403,6 +403,10 @@ void FillCollectibles(
 	(*load)(false);
 }
 
+// StaticGram: the list area keeps its height while a new list loads.
+constexpr auto kCollapseDelay = crl::time(700);
+constexpr auto kCollapseDuration = crl::time(250);
+
 struct Balances {
 	std::optional<int64> gram;
 	std::optional<int64> stars;
@@ -495,9 +499,31 @@ void MoneyBox(
 		body->clear();
 		const auto inner = body->add(object_ptr<Ui::VerticalLayout>(body));
 		const auto holder = body->add(object_ptr<Ui::RpWidget>(body));
+		struct Holder {
+			Ui::Animations::Simple collapse;
+			int keep = 0;
+		};
+		const auto state = holder->lifetime().make_state<Holder>();
+		state->keep = keep;
 		inner->heightValue() | rpl::on_next([=](int height) {
-			holder->resize(holder->width(), std::max(keep - height, 0));
+			holder->resize(
+				holder->width(),
+				std::max(state->keep - height, 0));
 		}, holder->lifetime());
+		// Once the new list had time to load, a shorter list lets the box
+		// shrink smoothly instead of leaving an empty space below it.
+		base::call_delayed(kCollapseDelay, holder, [=] {
+			const auto from = holder->height();
+			if (from <= 0) {
+				return;
+			}
+			state->collapse.start([=] {
+				const auto now = int(base::SafeRound(
+					state->collapse.value(0.)));
+				state->keep = inner->height() + now;
+				holder->resize(holder->width(), now);
+			}, from, 0., kCollapseDuration, anim::easeOutCubic);
+		});
 		if (tab == 0) {
 			FillTransactions(inner, controller, kind);
 		} else {

@@ -398,6 +398,9 @@ bool LoadTheme(
 			out ? out->palette : *style::main_palette::get(),
 			*paletteContent);
 	}
+	// StaticGram: also for theme files without an accent colorizer.
+	Ui::EnsureAccentFillsReadable(
+		out ? out->palette : *style::main_palette::get());
 	if (cache) {
 		if (out) {
 			cache->colors = out->palette.save();

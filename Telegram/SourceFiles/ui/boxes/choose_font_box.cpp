@@ -870,6 +870,7 @@ void ChooseFontBox(
 		top,
 		st::defaultMultiSelect,
 		tr::lng_participant_filter()));
+	filter->setRoundedCard(st::boxBg);
 	top->resizeToWidth(st::boxWidth);
 
 	filter->setSubmittedCallback([=](Qt::KeyboardModifiers) {
