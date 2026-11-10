@@ -1341,6 +1341,9 @@ historyComposeFieldMaxHeight: 224px;
 historyComposeFieldFadeHeight: 6px;
 historySendRight: 2px;
 historySendPadding: 9px;
+// StaticGram: the floating compose card margins (sides and bottom) over
+// the chat background, matching the rounded top card.
+historyComposeFloat: margins(8px, 0px, 8px, 8px);
 // historyMinHeight: 56px;
 
 historyAttach: IconButton(defaultIconButton) {

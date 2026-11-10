@@ -4487,7 +4487,10 @@ void ChatWidget::resizeEvent(QResizeEvent *e) {
 	if (!width() || !height()) {
 		return;
 	}
-	_composeControls->resizeToWidth(width());
+	// StaticGram: the floating compose card inside its side margins.
+	_composeControls->resizeToWidth(width()
+		- st::historyComposeFloat.left()
+		- st::historyComposeFloat.right());
 	recountChatWidth();
 	updateControlsGeometry();
 }
@@ -4531,16 +4534,25 @@ void ChatWidget::updateControlsGeometry() {
 		_bottom->setGeometry(0, bottom - bottomHeight, width(), bottomHeight);
 		bottom -= bottomHeight;
 	}
+	const auto &floating = st::historyComposeFloat;
+	auto keyboardShown = false;
 	if (isChoosingTheme()) {
 		bottom -= _chooseTheme->height();
 	} else {
+		if (!bottomHeight) {
+			// StaticGram: the compose card floats above the bottom edge.
+			bottom -= floating.bottom();
+		}
 		const auto maxFieldHeight = computeMaxFieldHeightForKeyboard(
 			top,
 			bottom
 				- tabsBottomSkip
 				- (_suggestOptions ? st::historyReplyHeight : 0));
 		if (_kbScroll && _kbShown && keyboardRowsVisible() && _keyboard) {
-			_keyboard->resizeToWidth(innerWidth, maxFieldHeight);
+			const auto keyboardWidth = innerWidth
+				- floating.left()
+				- floating.right();
+			_keyboard->resizeToWidth(keyboardWidth, maxFieldHeight);
 			const auto keyboardReserve = std::min(
 				_keyboard->height(),
 				maxFieldHeight - (maxFieldHeight / 2));
@@ -4549,16 +4561,17 @@ void ChatWidget::updateControlsGeometry() {
 			const auto maxKbHeight = std::max(
 				0,
 				maxFieldHeight - _composeControls->fieldHeightCurrent());
-			_keyboard->resizeToWidth(innerWidth, maxKbHeight);
+			_keyboard->resizeToWidth(keyboardWidth, maxKbHeight);
 			const auto kbHeight = std::min(
 				_keyboard->height(),
 				maxKbHeight);
 			_kbScroll->setGeometry(
-				tabsLeftSkip,
+				tabsLeftSkip + floating.left(),
 				bottom - kbHeight,
-				innerWidth,
+				innerWidth - floating.left() - floating.right(),
 				kbHeight);
 			bottom -= kbHeight;
+			keyboardShown = (kbHeight > 0);
 		} else {
 			_composeControls->setFieldMaxHeight(
 				st::historyComposeFieldMaxHeight);
@@ -4598,7 +4611,8 @@ void ChatWidget::updateControlsGeometry() {
 		}
 		updateInnerVisibleArea();
 	}
-	_composeControls->move(0, composeTop);
+	_composeControls->setFloating(true, !keyboardShown);
+	_composeControls->move(floating.left(), composeTop);
 	_composeControls->setAutocompleteBoundingRect(_scroll->geometry());
 	if (_supportAutocomplete) {
 		_supportAutocomplete->setBoundings(_scroll->geometry());

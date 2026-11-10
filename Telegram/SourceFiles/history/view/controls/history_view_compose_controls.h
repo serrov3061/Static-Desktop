@@ -303,6 +303,9 @@ public:
 	void clear(bool keepReply = false);
 	// StaticGram: the send button gem animation after a sent message.
 	void playSentAnimation();
+	// StaticGram: a floating rounded compose card (chat sections); the
+	// bottom corners stay square while a bot keyboard is right below.
+	void setFloating(bool floating, bool roundBottom);
 	void hidePanelsAnimated();
 	void clearListenState();
 
@@ -561,6 +564,8 @@ private:
 	rpl::event_stream<FullReplyTo> _jumpToItemRequests;
 
 	std::optional<Ui::RoundRect> _backgroundRect;
+	bool _floating = false;
+	bool _floatingRoundBottom = true;
 
 	const std::shared_ptr<Ui::SendButton> _send;
 	rpl::event_stream<bool> _sendLockBadge;

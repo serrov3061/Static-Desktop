@@ -598,6 +598,8 @@ private:
 	void orderWidgets();
 
 	// StaticGram: rounded corners of the chat top card and the compose area.
+	// StaticGram: the floating compose card width inside its margins.
+	[[nodiscard]] int composeAreaWidth() const;
 	void setupStaticGramCorners();
 	void updateStaticGramCorners();
 	void paintStaticGramCorner(

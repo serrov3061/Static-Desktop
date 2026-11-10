@@ -2313,25 +2313,29 @@ void HistoryWidget::setupStaticGramCorners() {
 	// whatever bar is the last (or first) one gets the rounding.
 	_topBar->setProperty("sg-square-bottom", true);
 	_topBars->setProperty("sg-square-strips", true);
-	for (auto i = 0; i != 4; ++i) {
+	// 0, 1: the top card bottom corners; 2, 3: the compose card top
+	// corners; 4, 5: the compose card bottom corners (it floats above
+	// the bottom edge with st::historyComposeFloat margins).
+	for (auto i = 0; i != 6; ++i) {
 		const auto right = (i % 2) == 1;
-		const auto top = (i < 2);
+		const auto compose = (i >= 2);
+		const auto centerAtTop = (i < 2) || (i >= 4);
 		const auto corner = Ui::CreateChild<Ui::RpWidget>(this);
 		corner->setAttribute(Qt::WA_TransparentForMouseEvents);
 		corner->resize(kStaticGramCornerRadius, kStaticGramCornerRadius);
 		corner->paintRequest() | rpl::on_next([=] {
 			if (_showAnimation || !_history) {
 				return;
-			} else if (top && _topBar->isHidden()) {
+			} else if (!compose && _topBar->isHidden()) {
 				return;
-			} else if (!top && isRecording()) {
+			} else if (compose && isRecording()) {
 				// The record button circle may cover the corner.
 				return;
 			}
 			const auto size = float64(kStaticGramCornerRadius);
 			paintStaticGramCorner(
 				corner,
-				QPointF(right ? 0. : size, top ? 0. : size));
+				QPointF(right ? 0. : size, centerAtTop ? 0. : size));
 		}, corner->lifetime());
 		_sgCorners.push_back(corner);
 	}
@@ -2341,16 +2345,22 @@ void HistoryWidget::setupStaticGramCorners() {
 }
 
 void HistoryWidget::updateStaticGramCorners() {
-	if (_sgCorners.size() != 4) {
+	if (_sgCorners.size() != 6) {
 		return;
 	}
 	const auto size = kStaticGramCornerRadius;
+	const auto &floating = st::historyComposeFloat;
 	const auto scroll = _scroll->geometry();
 	const auto composeTop = scroll.y() + scroll.height();
+	const auto composeBottom = height() - floating.bottom();
+	const auto composeLeft = floating.left();
+	const auto composeRight = width() - floating.right() - size;
 	_sgCorners[0]->move(scroll.x(), scroll.y() - size);
 	_sgCorners[1]->move(width() - size, scroll.y() - size);
-	_sgCorners[2]->move(0, composeTop);
-	_sgCorners[3]->move(width() - size, composeTop);
+	_sgCorners[2]->move(composeLeft, composeTop);
+	_sgCorners[3]->move(composeRight, composeTop);
+	_sgCorners[4]->move(composeLeft, composeBottom - size);
+	_sgCorners[5]->move(composeRight, composeBottom - size);
 	for (const auto &corner : _sgCorners) {
 		corner->update();
 	}
@@ -6746,9 +6756,9 @@ void HistoryWidget::mouseMoveEvent(QMouseEvent *e) {
 void HistoryWidget::updateOverStates(QPoint pos) {
 	const auto isReadyToForward = readyToForward();
 	const auto detailsRect = QRect(
-		0,
+		st::historyComposeFloat.left(),
 		_field->y() - st::historySendPadding - st::historyReplyHeight,
-		width() - _fieldBarCancel->width(),
+		composeAreaWidth() - _fieldBarCancel->width(),
 		st::historyReplyHeight);
 	const auto hasWebPage = !!_previewDrawPreview;
 	const auto inDetails = detailsRect.contains(pos)
@@ -7765,14 +7775,22 @@ void HistoryWidget::updateSendAsFileGeometry() {
 }
 
 void HistoryWidget::moveFieldControls() {
+	// StaticGram: the compose area is a floating card with side and
+	// bottom margins (st::historyComposeFloat).
+	const auto &floating = st::historyComposeFloat;
+	const auto composeWidth = composeAreaWidth();
 	auto keyboardHeight = 0;
-	auto bottom = height();
+	auto bottom = height() - floating.bottom();
 	auto maxKeyboardHeight = computeMaxFieldHeight() - fieldHeight();
-	_keyboard->resizeToWidth(width(), maxKeyboardHeight);
+	_keyboard->resizeToWidth(composeWidth, maxKeyboardHeight);
 	if (_kbShown) {
 		keyboardHeight = std::min(_keyboard->height(), maxKeyboardHeight);
 		bottom -= keyboardHeight;
-		_kbScroll->setGeometryToLeft(0, bottom, width(), keyboardHeight);
+		_kbScroll->setGeometryToLeft(
+			floating.left(),
+			bottom,
+			composeWidth,
+			keyboardHeight);
 	}
 
 // (_botMenu) (_attachToggle|_replaceMedia) (_sendAs) ---- _inlineResults ------------------------------ _tabbedPanel ------ _fieldBarCancel
@@ -7780,7 +7798,7 @@ void HistoryWidget::moveFieldControls() {
 // (_botStart|_unblock|_joinChannel|_muteUnmute|_reportMessages)
 
 	auto buttonsBottom = bottom - _attachToggle->height();
-	auto left = st::historySendRight;
+	auto left = floating.left() + st::historySendRight;
 	if (_botMenu) {
 		const auto skip = st::historyBotMenuSkip;
 		_botMenu->moveToLeft(left + skip, buttonsBottom + skip);
@@ -7803,9 +7821,11 @@ void HistoryWidget::moveFieldControls() {
 			left,
 			bottom - fieldHeight() - st::historySendPadding);
 	}
-	auto right = st::historySendRight;
+	auto right = floating.right() + st::historySendRight;
 	_send->moveToRight(right, buttonsBottom); right += _send->width();
-	_voiceRecordBar->moveToLeft(0, bottom - _voiceRecordBar->height());
+	_voiceRecordBar->moveToLeft(
+		floating.left(),
+		bottom - _voiceRecordBar->height());
 	_tabbedSelectorToggle->moveToRight(right, buttonsBottom);
 	_botKeyboardHide->moveToRight(right, buttonsBottom);
 	right += _botKeyboardHide->width();
@@ -7839,7 +7859,7 @@ void HistoryWidget::moveFieldControls() {
 	updateDiscardRichDraftGeometry();
 
 	_fieldBarCancel->moveToRight(
-		0,
+		floating.right(),
 		_field->y() - st::historySendPadding - _fieldBarCancel->height());
 	if (_inlineResults) {
 		_inlineResults->moveBottom(_field->y() - st::historySendPadding);
@@ -7854,9 +7874,9 @@ void HistoryWidget::moveFieldControls() {
 	}
 
 	const auto fullWidthButtonRect = myrtlrect(
-		0,
+		floating.left(),
 		bottom - _botStart->height(),
-		width(),
+		composeWidth,
 		_botStart->height());
 	_botStart->setGeometry(fullWidthButtonRect);
 	_unblock->setGeometry(fullWidthButtonRect);
@@ -7870,7 +7890,7 @@ void HistoryWidget::moveFieldControls() {
 
 void HistoryWidget::updateFieldSize() {
 	const auto kbShowShown = _history && !_kbShown && _keyboard->hasMarkup();
-	auto fieldWidth = width()
+	auto fieldWidth = composeAreaWidth()
 		- _attachToggle->width()
 		- st::historySendRight
 		- _send->width()
@@ -7904,7 +7924,9 @@ void HistoryWidget::updateFieldSize() {
 	}
 
 	if (_fieldDisabled) {
-		_fieldDisabled->resize(width(), st::historySendSize.height());
+		_fieldDisabled->resize(
+			composeAreaWidth(),
+			st::historySendSize.height());
 	}
 	if (_field->width() != fieldWidth) {
 		_field->resize(fieldWidth, _field->height());
@@ -8479,7 +8501,7 @@ void HistoryWidget::updateControlsGeometry() {
 		: 0;
 	const auto innerWidth = width - tabsLeftSkip;
 
-	_voiceRecordBar->resizeToWidth(width);
+	_voiceRecordBar->resizeToWidth(composeAreaWidth());
 
 	moveFieldControls();
 
@@ -8828,8 +8850,10 @@ void HistoryWidget::updateHistoryGeometry(
 			|| isJoinChannel()
 			|| isMuteUnmute()
 			|| isReportMessages())) {
-		newScrollHeight -= _unblock->height();
+		newScrollHeight -= _unblock->height()
+			+ st::historyComposeFloat.bottom();
 	} else {
+		newScrollHeight -= st::historyComposeFloat.bottom();
 		if (editingMessage() || _canSendMessages) {
 			newScrollHeight -= (fieldHeight() + 2 * st::historySendPadding);
 		} else if (_sendRestriction) {
@@ -9381,6 +9405,11 @@ void HistoryWidget::botCallbackSent(not_null<HistoryItem*> item) {
 	}
 }
 
+int HistoryWidget::composeAreaWidth() const {
+	const auto &floating = st::historyComposeFloat;
+	return std::max(width() - floating.left() - floating.right(), 0);
+}
+
 int HistoryWidget::computeMaxFieldHeight() const {
 	const auto pinnedBar = visiblePinnedBar();
 	const auto available = height()
@@ -9399,6 +9428,7 @@ int HistoryWidget::computeMaxFieldHeight() const {
 			? st::historyReplyHeight
 			: 0)
 		- (2 * st::historySendPadding)
+		- st::historyComposeFloat.bottom()
 		- st::historyReplyHeight; // at least this height for history.
 	return std::min(st::historyComposeFieldMaxHeight, available);
 }
@@ -11611,9 +11641,13 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
 	// Mokagram: верхние углы панели ввода скруглены.
-	// StaticGram: a plain rectangle, the top corners are rounded by the
-	// corner overlays with the same radius as the top card.
-	p.fillRect(myrtlrect(0, backy, width(), backh), st::historyReplyBg);
+	// StaticGram: the floating compose card, a plain rectangle inside the
+	// side margins; its corners are rounded by the corner overlays with
+	// the same radius as the top card. The content below is painted in
+	// the card coordinates.
+	const auto composeWidth = composeAreaWidth();
+	p.translate(st::historyComposeFloat.left(), 0);
+	p.fillRect(QRect(0, backy, composeWidth, backh), st::historyReplyBg);
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
@@ -11653,7 +11687,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		st::historyLinkIcon.paint(
 			p,
 			st::historyReplyIconPosition + QPoint(0, backy),
-			width());
+			composeWidth);
 		const auto textTop = backy + st::msgReplyPadding.top();
 		auto previewLeft = st::historyReplySkip;
 
@@ -11666,7 +11700,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 			previewLeft += st::historyReplyPreview + st::msgReplyBarSkip;
 		}
 		p.setPen(st::historyReplyNameFg);
-		const auto elidedWidth = width()
+		const auto elidedWidth = composeWidth
 			- previewLeft
 			- _fieldBarCancel->width()
 			- st::msgReplyPadding.right();
@@ -11688,7 +11722,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 		const auto pausedSpoiler = paused || On(PowerSaving::kChatSpoiler);
 		auto replyLeft = st::historyReplySkip;
 		if (_suggestOptions) {
-			_suggestOptions->paintIcon(p, 0, backy, width());
+			_suggestOptions->paintIcon(p, 0, backy, composeWidth);
 		} else {
 			const auto quoted = _replyTo
 				&& !HistoryView::Reply::ComposePreviewQuote(_replyTo).empty();
@@ -11699,7 +11733,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 				: st::historyReplyIcon).paint(
 					p,
 					st::historyReplyIconPosition + QPoint(0, backy),
-					width());
+					composeWidth);
 		}
 		if (drawMsgText) {
 			if (hasPreview) {
@@ -11740,7 +11774,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 				replyLeft += st::historyReplyPreview + st::msgReplyBarSkip;
 			}
 			if (_suggestOptions) {
-				_suggestOptions->paintLines(p, replyLeft, backy, width());
+				_suggestOptions->paintLines(p, replyLeft, backy, composeWidth);
 			} else {
 				p.setPen(st::historyReplyNameFg);
 				if (_editMsgId) {
@@ -11750,7 +11784,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 						p,
 						replyLeft,
 						backy + st::msgReplyPadding.top(),
-						width()
+						composeWidth
 							- replyLeft
 							- _fieldBarCancel->width()
 							- st::msgReplyPadding.right());
@@ -11762,7 +11796,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 						st::msgReplyPadding.top()
 							+ st::msgServiceNameFont->height
 							+ backy),
-					.availableWidth = width()
+					.availableWidth = composeWidth
 						- replyLeft
 						- _fieldBarCancel->width()
 						- st::msgReplyPadding.right(),
@@ -11784,7 +11818,7 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 					+ st::msgDateFont->ascent,
 				st::msgDateFont->elided(
 					tr::lng_profile_loading(tr::now),
-					width()
+					composeWidth
 						- replyLeft
 						- _fieldBarCancel->width()
 						- st::msgReplyPadding.right()));
@@ -11792,15 +11826,15 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	} else if (hasForward) {
 		st::historyForwardIcon.paint(
 			p,
-			st::historyReplyIconPosition + QPoint(0, backy), width());
+			st::historyReplyIconPosition + QPoint(0, backy), composeWidth);
 		const auto x = st::historyReplySkip;
-		const auto available = width()
+		const auto available = composeWidth
 			- x
 			- _fieldBarCancel->width()
 			- st::msgReplyPadding.right();
-		_forwardPanel->paint(p, x, backy, available, width());
+		_forwardPanel->paint(p, x, backy, available, composeWidth);
 	} else if (_suggestOptions) {
-		_suggestOptions->paintBar(p, 0, backy, width());
+		_suggestOptions->paintBar(p, 0, backy, composeWidth);
 	}
 }
 

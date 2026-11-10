@@ -395,7 +395,19 @@ void FieldHeader::init() {
 	) | rpl::on_next([=] {
 		Painter p(this);
 		p.setInactive(_show->paused(Window::GifPauseReason::Any));
-		p.fillRect(rect(), st::historyComposeAreaBg);
+		if (property("sg-floating").toBool()) {
+			// StaticGram: the top of the floating compose card.
+			constexpr auto kRadius = 22.;
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::historyComposeAreaBg);
+			p.drawRoundedRect(
+				QRectF(rect()).adjusted(0., 0., 0., kRadius),
+				kRadius,
+				kRadius);
+		} else {
+			p.fillRect(rect(), st::historyComposeAreaBg);
+		}
 
 		const auto position = st::historyReplyIconPosition;
 		if (_suggestOptions) {
@@ -2484,6 +2496,20 @@ TextWithTags ComposeControls::getTextWithAppliedMarkdown() const {
 
 void ComposeControls::playSentAnimation() {
 	_send->playSentAnimation();
+}
+
+void ComposeControls::setFloating(bool floating, bool roundBottom) {
+	if (_floating == floating && _floatingRoundBottom == roundBottom) {
+		return;
+	}
+	_floating = floating;
+	_floatingRoundBottom = roundBottom;
+	_header->setProperty("sg-floating", floating);
+	_header->update();
+	_wrap->update();
+	if (_writeRestricted) {
+		_writeRestricted->update();
+	}
 }
 
 void ComposeControls::clear(bool keepReply) {
@@ -5767,6 +5793,18 @@ void ComposeControls::paintBackground(QPainter &p, QRect full, QRect clip) {
 				- _st.starsSkip);
 		}
 		p.drawRoundedRect(full, _st.radius, _st.radius);
+	} else if (_floating) {
+		// StaticGram: the floating compose card, rounded like the chat
+		// top card; the chat background shows around it.
+		constexpr auto kRadius = 22.;
+		auto hq = PainterHighQualityEnabler(p);
+		p.setBrush(_st.bg);
+		p.setPen(Qt::NoPen);
+		auto rect = QRectF(full);
+		if (!_floatingRoundBottom) {
+			rect.setHeight(rect.height() + kRadius);
+		}
+		p.drawRoundedRect(rect, kRadius, kRadius);
 	} else {
 		p.fillRect(clip, _st.bg);
 	}
