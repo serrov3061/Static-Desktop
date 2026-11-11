@@ -453,7 +453,13 @@ void AddBadgeIcon(
 		auto hq = PainterHighQualityEnabler(p);
 		p.setPen(Qt::NoPen);
 		p.setBrush(st::activeButtonBg);
-		p.drawEllipse(icon->rect());
+		// The row stretches the widget to the box width: keep the badge a circle in the middle.
+		const auto side = std::min(icon->width(), icon->height());
+		p.drawEllipse(QRect(
+			(icon->width() - side) / 2,
+			(icon->height() - side) / 2,
+			side,
+			side));
 		if (state->emoji) {
 			const auto size = Data::FrameSizeFromTag(
 				Data::CustomEmojiSizeTag::Large) / style::DevicePixelRatio();
