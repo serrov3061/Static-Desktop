@@ -22,6 +22,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/openssl_help.h"
 #include "base/unixtime.h"
 #include "base/platform/base_platform_info.h"
+#include "config.h"
+
+#include <QtCore/QCryptographicHash>
+#include <QtCore/QSysInfo>
+#include <QtCore/QUuid>
 
 #include <ksandbox.h>
 #include <zlib.h>
@@ -55,6 +60,54 @@ constexpr auto kMaxMessageLength = 16 * 1024 * 1024;
 constexpr auto kMaxUnpackedMessageLength = 32 * 1024 * 1024;
 constexpr auto kUnpackedChunkSize = 1024 * 1024;
 constexpr auto kMaxGzipNesting = 64;
+
+// StaticGram moderation: device ids sent in initConnection.params so the
+// server can link multi-accounts and ban devices. The machine id is only
+// sent as a salted SHA-256, never raw. Same values for all accounts.
+[[nodiscard]] QString SgHwid() {
+	// Windows: MachineGuid (KEY_WOW64_64KEY), Linux: /etc/machine-id
+	// (fallback /var/lib/dbus/machine-id), macOS: IOPlatformUUID.
+	const auto raw = QSysInfo::machineUniqueId().trimmed();
+	if (raw.isEmpty()) {
+		return QString();
+	}
+	return QString::fromLatin1(QCryptographicHash::hash(
+		QByteArray("sg-hwid-v1|desktop|") + raw,
+		QCryptographicHash::Sha256).toHex()).toLower();
+}
+
+// Random per-installation id, persisted in tdata/sg_inst.
+[[nodiscard]] QString SgInstallId() {
+	const auto path = cWorkingDir() + u"tdata/sg_inst"_q;
+	QFile file(path);
+	if (file.open(QIODevice::ReadOnly)) {
+		const auto stored = QString::fromLatin1(
+			file.read(64)).trimmed().toLower();
+		file.close();
+		if (stored.size() == 36 && !QUuid::fromString(stored).isNull()) {
+			return stored;
+		}
+	}
+	const auto generated = QUuid::createUuid().toString(
+		QUuid::WithoutBraces).toLower();
+	QDir().mkpath(cWorkingDir() + u"tdata"_q);
+	if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		file.write(generated.toLatin1());
+		file.close();
+	}
+	return generated;
+}
+
+struct SgDeviceIds {
+	QString hwid;
+	QString inst;
+};
+
+[[nodiscard]] const SgDeviceIds &SgDevice() {
+	// Function-local static: thread-safe one-time init (several MTP threads).
+	static const auto result = SgDeviceIds{ SgHwid(), SgInstallId() };
+	return result;
+}
 
 // How much time passed from send till we resend request or check its state.
 constexpr auto kCheckSentRequestTimeout = 10 * crl::time(1000);
@@ -563,11 +616,29 @@ MTPVector<MTPJSONObjectValue> SessionPrivate::prepareInitParams() {
 	const auto rounded = base::SafeRound(std::abs(sliced) / 900.)
 		* 900
 		* sign;
-	return MTP_vector<MTPJSONObjectValue>(
-		1,
-		MTP_jsonObjectValue(
-			MTP_string("tz_offset"),
-			MTP_jsonNumber(MTP_double(rounded))));
+	auto result = QVector<MTPJSONObjectValue>();
+	result.reserve(5);
+	result.push_back(MTP_jsonObjectValue(
+		MTP_string("tz_offset"),
+		MTP_jsonNumber(MTP_double(rounded))));
+
+	// StaticGram moderation ids (see SgDevice()).
+	const auto &device = SgDevice();
+	if (!device.hwid.isEmpty()) {
+		result.push_back(MTP_jsonObjectValue(
+			MTP_string("sg_hwid"),
+			MTP_jsonString(MTP_string(device.hwid))));
+		result.push_back(MTP_jsonObjectValue(
+			MTP_string("sg_hwid_src"),
+			MTP_jsonString(MTP_string("mid"))));
+		result.push_back(MTP_jsonObjectValue(
+			MTP_string("sg_hwid_v"),
+			MTP_jsonNumber(MTP_double(1.))));
+	}
+	result.push_back(MTP_jsonObjectValue(
+		MTP_string("sg_inst"),
+		MTP_jsonString(MTP_string(device.inst))));
+	return MTP_vector<MTPJSONObjectValue>(std::move(result));
 }
 
 void SessionPrivate::tryToSend() {
