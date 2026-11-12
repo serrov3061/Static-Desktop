@@ -35,9 +35,11 @@ namespace StaticGram {
 //
 // The profile header (Info::Profile::TopBar) owns one instance, feeds it the
 // pinned gifts and calls paintBehind() / paintFront() around the avatar.
-// A hovered bubble grows above the header children and asks the header to
-// stretch (requestExtraHeight); a click opens a full-window scene with the
-// gift in the middle and an "Open" button for the unique gift box.
+// Hover lifts a bubble a little; press and drag pulls it out of the orbit,
+// it inflates with the distance from the avatar and flies back on release.
+// It always stays inside the header: the header never changes its size.
+// A click opens a full-window scene with the gift in the middle and an
+// "Open" button for the unique gift box.
 //
 // Frames are only driven while the header is visible and the window is not
 // minimized; the glass layers are rendered once per gift, size and DPR.
@@ -50,9 +52,8 @@ public:
 		QWidget *userpicButton = nullptr;
 		Fn<QRect()> userpicGeometry;
 		Fn<float64()> progress; // 0. collapsed .. 1. expanded header.
-		Fn<int()> contentBottom; // Bubbles stay above it (action buttons).
-		Fn<int()> extraHeight; // Currently applied header stretch.
-		Fn<void(int)> requestExtraHeight;
+		Fn<int()> contentTop; // Held bubbles stay below it (top bar).
+		Fn<int()> contentBottom; // And above it (action buttons).
 	};
 
 	explicit ProfileGiftBubbles(Descriptor &&descriptor);
@@ -77,7 +78,7 @@ public:
 	};
 
 private:
-	class FocusLayer;
+	class HeldLayer;
 	class Scene;
 	struct GlassImages;
 
@@ -87,7 +88,7 @@ private:
 		Bubble &bubble,
 		const Placement &placement,
 		bool large);
-	void paintFocusLayer(QPainter &p);
+	void paintHeldLayer(QPainter &p);
 	void paintScene(
 		QPainter &p,
 		uint64 giftId,
@@ -101,12 +102,11 @@ private:
 		const QRect &userpic,
 		float64 progress,
 		crl::time now) const;
-	[[nodiscard]] Placement focusPlacement(
+	[[nodiscard]] Placement heldPlacement(
 		const Bubble &bubble,
 		const QRect &userpic,
 		float64 progress,
 		crl::time now) const;
-	[[nodiscard]] float64 focusValue() const;
 	[[nodiscard]] Bubble *findBubble(uint64 giftId) const;
 	[[nodiscard]] int hitTest(QPoint point, bool frontOnly) const;
 
@@ -119,11 +119,13 @@ private:
 	void ensureAnimating();
 	bool tick(crl::time now);
 	void updateArea();
-	void updateStretch(crl::time now);
-	void updateFocusLayer(crl::time now);
 
+	bool handleMouse(QWidget *source, QEvent *e, bool frontOnly);
 	void setHovered(int index);
-	void setPressed(bool pressed);
+	void startHold(QPointF position, crl::time now);
+	void releaseHold(crl::time now);
+	void clearHold();
+	void updateHeldLayer();
 	void openScene(uint64 giftId);
 	void finishScene();
 	void openGiftBox(uint64 giftId);
@@ -134,15 +136,14 @@ private:
 	const not_null<PeerData*> _peer;
 	const Fn<QRect()> _userpicGeometry;
 	const Fn<float64()> _progress;
+	const Fn<int()> _contentTop;
 	const Fn<int()> _contentBottom;
-	const Fn<int()> _extraHeight;
-	const Fn<void(int)> _requestExtraHeight;
 
 	std::vector<std::unique_ptr<Bubble>> _bubbles;
 	std::unique_ptr<Lottie::MultiPlayer> _player;
 	rpl::lifetime _loadingLifetime;
 
-	// The large artwork and glass of the hovered / opened gift.
+	// The large artwork and glass of the held / opened gift.
 	struct Large;
 	std::unique_ptr<Large> _large;
 
@@ -151,15 +152,22 @@ private:
 	crl::time _lastUpdate = 0;
 	crl::time _orbitTime = 0;
 
-	uint64 _hoveredId = 0; // Bubble under the cursor.
-	uint64 _focusId = 0; // Bubble that grows / shrinks back.
-	bool _pressed = false;
-	Ui::Animations::Simple _focus;
-	Ui::Animations::Simple _press;
-	base::unique_qptr<FocusLayer> _focusLayer;
-	QRect _focusMask;
-	QPainterPath _focusClip;
-	QSize _focusClipSize;
+	// Hover: a small lift of the bubble under the cursor.
+	uint64 _hoveredId = 0;
+	uint64 _liftId = 0;
+	Ui::Animations::Simple _lift;
+
+	// Press: a click opens the scene, a drag pulls the bubble out.
+	uint64 _pressedId = 0;
+	QPoint _pressPosition;
+	uint64 _heldId = 0;
+	QPointF _dragPosition;
+	crl::time _grabStarted = 0;
+	crl::time _returnStarted = 0;
+	Placement _released;
+	base::unique_qptr<HeldLayer> _heldLayer;
+	QPainterPath _heldClip;
+	QSize _heldClipSize;
 
 	base::unique_qptr<Scene> _scene;
 	uint64 _sceneId = 0;

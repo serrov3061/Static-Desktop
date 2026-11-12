@@ -841,11 +841,10 @@ bool TopBar::paintStaticGramBanner(QPainter &p, const QRect &clip) {
 		return false;
 	}
 	const auto w = width();
-	// StaticGram: the gift bubbles stretch is not part of the picture.
-	const auto h = height() - _sgExtraHeight.current();
+	const auto h = height();
 	// The picture is sized for the full header, so it slides up instead of
 	// zooming while the header collapses.
-	const auto fullHeight = std::max(staticGramBaseMaximumHeight(), h);
+	const auto fullHeight = std::max(maximumHeight(), h);
 	const auto ratio = style::DevicePixelRatio();
 	const auto id = StaticGram::BannerOfUser(
 		uint64(_peer->id.value & PeerId::kChatTypeMask)).id;
@@ -2137,7 +2136,7 @@ void TopBar::updateLabelsPosition() {
 }
 
 float64 TopBar::progressForHeight(int height) const {
-	const auto max = staticGramBaseMaximumHeight();
+	const auto max = QWidget::maximumHeight();
 	const auto min = _minForProgress;
 	const auto p = _savedMessages
 		? 0.
@@ -3081,14 +3080,14 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		const auto offset = QPoint(0, -shift);
 		if (collectible) {
 			_cachedGradient = Ui::CreateTopBgGradient(
-				QSize(width(), staticGramBaseMaximumHeight()),
+				QSize(width(), maximumHeight()),
 				collectible->centerColor,
 				collectible->edgeColor,
 				false,
 				offset);
 		} else if (colorProfile && colorProfile->bg.size() > 1) {
 			_cachedGradient = Ui::CreateTopBgGradient(
-				QSize(width(), staticGramBaseMaximumHeight()),
+				QSize(width(), maximumHeight()),
 				colorProfile->bg[1],
 				colorProfile->bg[0],
 				false,
@@ -3101,29 +3100,9 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		const auto x = (width()
 			- _cachedGradient.width() / style::DevicePixelRatio())
 				/ 2;
-		const auto extra = _sgExtraHeight.current();
 		const auto y = (height()
-			- extra
 			- _cachedGradient.height() / style::DevicePixelRatio())
 				/ 2;
-		if (extra > 0) {
-			// StaticGram: the stretched part continues the last row.
-			const auto ratio = style::DevicePixelRatio();
-			const auto bottom = y
-				+ _cachedGradient.height() / ratio;
-			p.drawImage(
-				QRectF(
-					x,
-					bottom - 1,
-					_cachedGradient.width() / ratio,
-					height() - bottom + 1),
-				_cachedGradient,
-				QRectF(
-					0,
-					_cachedGradient.height() - 1,
-					_cachedGradient.width(),
-					1));
-		}
 		if (clipTouchesRoundedCorners(clipBounds)) {
 			// Mokagram: радиус 32, внизу прямо только под музыкой.
 			constexpr auto radius = 32;
@@ -3874,32 +3853,15 @@ void TopBar::setupStaticGramGiftBubbles(
 			.userpicButton = _userpicButton.get(),
 			.userpicGeometry = [=] { return userpicGeometry(); },
 			.progress = [=] { return _progress.current(); },
+			// Below the top bar with the back / close buttons.
+			.contentTop = [=] { return st::infoLayerTopBarHeight; },
+			// Above the action buttons (or the pills).
 			.contentBottom = [=] {
 				return _actions
 					? _actions->y()
 					: (height() - _pillsReserve.current());
 			},
-			.extraHeight = [=] { return _sgExtraHeight.current(); },
-			.requestExtraHeight = [=](int extra) {
-				setStaticGramExtraHeight(extra);
-			},
 		});
-}
-
-int TopBar::staticGramBaseMaximumHeight() const {
-	return QWidget::maximumHeight() - _sgExtraHeight.current();
-}
-
-void TopBar::setStaticGramExtraHeight(int extra) {
-	const auto applied = _sgExtraHeight.current();
-	if (applied == extra) {
-		return;
-	}
-	QWidget::setMaximumHeight(QWidget::maximumHeight() - applied + extra);
-	_cachedClipPath = QPainterPath();
-	_sgExtraHeight = extra;
-	updateLabelsPosition();
-	update();
 }
 
 QPointF TopBar::calculateGiftPosition(

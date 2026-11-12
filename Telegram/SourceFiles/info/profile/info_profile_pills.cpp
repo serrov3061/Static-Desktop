@@ -209,11 +209,7 @@ void TopBar::applyPillsReserve(int reserve) {
 }
 
 rpl::producer<int> TopBar::desiredHeightValue() const {
-	// StaticGram: the gift bubbles stretch the header too.
-	return rpl::combine(
-		_pillsReserve.value(),
-		_sgExtraHeight.value()
-	) | rpl::map([=] {
+	return _pillsReserve.value() | rpl::map([=] {
 		return QWidget::maximumHeight();
 	});
 }

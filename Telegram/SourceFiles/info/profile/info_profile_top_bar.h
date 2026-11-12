@@ -218,12 +218,9 @@ private:
 		QPainter &p,
 		const QRect &clip,
 		const QRect &userpicGeometry);
-	// StaticGram: pinned gifts orbit the avatar in glass bubbles, a hovered
-	// bubble stretches the header down by up to ~120px.
+	// StaticGram: pinned gifts orbit the avatar in glass bubbles.
 	void setupStaticGramGiftBubbles(
 		not_null<Window::SessionController*> controller);
-	void setStaticGramExtraHeight(int extra);
-	[[nodiscard]] int staticGramBaseMaximumHeight() const;
 	[[nodiscard]] QPointF calculateGiftPosition(
 		int position,
 		float64 progress,
@@ -413,7 +410,6 @@ private:
 	bool _hasStories = false;
 	bool _hasLiveStories = false;
 
-	rpl::variable<int> _sgExtraHeight = 0;
 	std::unique_ptr<StaticGram::ProfileGiftBubbles> _sgGiftBubbles;
 
 	std::optional<uint8> _localColorProfileIndex;

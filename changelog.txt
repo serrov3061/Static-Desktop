@@ -1,6 +1,6 @@
 7.4.4 (12.11.26)
 
-- Pinned NFT gifts orbit the profile avatar in glass bubbles; hover to enlarge, click to open.
+- Pinned NFT gifts orbit the profile avatar in glass bubbles; drag one out to enlarge it, click to open.
 
 7.4.3 (12.11.26)
 

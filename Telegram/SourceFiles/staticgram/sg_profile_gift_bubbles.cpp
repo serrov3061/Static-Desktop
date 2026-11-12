@@ -43,11 +43,13 @@ constexpr auto kPi = 3.14159265358979323846;
 // Geometry, in px at the full avatar size (desktop avatar is 80px, the
 // Android one 96dp, so the Android numbers are scaled by ~0.83).
 constexpr auto kBubbleRadius = 16.;
-constexpr auto kHoverScale = 2.8;
-constexpr auto kPressScale = 3.2;
+constexpr auto kHoverLift = 1.12; // Hover only lifts a bubble a little.
+constexpr auto kHeldScale = 3.55; // Android HELD_GIFT_SCALE.
+constexpr auto kGrowDistance = 92.; // Android 110dp from the avatar edge.
 constexpr auto kMargin = 6.;
-constexpr auto kMaxStretch = 120;
 constexpr auto kMaxGlowSpread = 26.;
+constexpr auto kDragThreshold = 5;
+constexpr auto kReturnArc = 22.;
 
 // The glass layers are drawn in a unit space (radius 1).
 constexpr auto kGlowExtent = 2.25;
@@ -64,14 +66,15 @@ constexpr auto kLargeArtFraction = 1.15;
 
 constexpr auto kIdleFrame = crl::time(33); // ~30 fps for the slow orbit.
 constexpr auto kAppearDuration = crl::time(320);
-constexpr auto kFocusDuration = crl::time(240);
-constexpr auto kPressDuration = crl::time(160);
+constexpr auto kLiftDuration = crl::time(180);
+constexpr auto kGrabDuration = crl::time(210);
+constexpr auto kReturnDuration = crl::time(480);
 constexpr auto kSceneOpenDuration = crl::time(420);
 constexpr auto kSceneCloseDuration = crl::time(300);
 constexpr auto kSceneButtonGap = 24;
 constexpr auto kSceneButtonHeight = 40;
 constexpr auto kSceneButtonPadding = 22;
-constexpr auto kSceneDimAlpha = 108;
+constexpr auto kSceneDimAlpha = 150;
 
 enum class GlassLayer {
 	Glow,
@@ -261,22 +264,14 @@ struct ProfileGiftBubbles::Large {
 	rpl::lifetime lifetime;
 };
 
-// Above the header children while a bubble is hovered: paints the grown
-// bubble and takes the mouse inside of it only (masked to the bubble).
-class ProfileGiftBubbles::FocusLayer final : public Ui::RpWidget {
+// Above the header children while a bubble is held or flies back: paints
+// it over the name and the buttons, never takes the mouse.
+class ProfileGiftBubbles::HeldLayer final : public Ui::RpWidget {
 public:
-	FocusLayer(
-		QWidget *parent,
-		Fn<void(QPainter&)> paint,
-		Fn<void(bool)> press,
-		Fn<void(bool)> release,
-		Fn<void()> leave)
+	HeldLayer(QWidget *parent, Fn<void(QPainter&)> paint)
 	: RpWidget(parent)
-	, _paint(std::move(paint))
-	, _press(std::move(press))
-	, _release(std::move(release))
-	, _leave(std::move(leave)) {
-		setCursor(style::cur_pointer);
+	, _paint(std::move(paint)) {
+		setAttribute(Qt::WA_TransparentForMouseEvents);
 	}
 
 protected:
@@ -284,30 +279,9 @@ protected:
 		auto p = QPainter(this);
 		_paint(p);
 	}
-	void mousePressEvent(QMouseEvent *e) override {
-		e->accept();
-		if (e->button() == Qt::LeftButton) {
-			_press(true);
-		}
-	}
-	void mouseReleaseEvent(QMouseEvent *e) override {
-		e->accept();
-		if (e->button() == Qt::LeftButton) {
-			_release(mask().isEmpty() || mask().contains(e->pos()));
-		}
-	}
-	void mouseMoveEvent(QMouseEvent *e) override {
-		e->accept();
-	}
-	void leaveEventHook(QEvent *e) override {
-		_leave();
-	}
 
 private:
 	const Fn<void(QPainter&)> _paint;
-	const Fn<void(bool)> _press;
-	const Fn<void(bool)> _release;
-	const Fn<void()> _leave;
 
 };
 
@@ -360,9 +334,10 @@ public:
 			return;
 		}
 		const auto extent = _radius + kMaxGlowSpread + 2.;
+		const auto center = _center + _offset;
 		update(QRect(
-			int(std::floor(_center.x() - extent)),
-			int(std::floor(_center.y() - extent)),
+			int(std::floor(center.x() - extent)),
+			int(std::floor(center.y() - extent)),
 			int(std::ceil(2. * extent)),
 			int(std::ceil(2. * extent))));
 	}
@@ -400,9 +375,10 @@ protected:
 		const auto from = _callbacks.origin();
 		const auto fromRadius = from.width() / 2.;
 		const auto radius = Lerp(fromRadius, _radius, progress);
+		const auto target = _center + _offset;
 		const auto center = QPointF(
-			Lerp(from.center().x(), _center.x(), progress),
-			Lerp(from.center().y(), _center.y(), progress));
+			Lerp(from.center().x(), target.x(), progress),
+			Lerp(from.center().y(), target.y(), progress));
 		const auto t = anim::Disabled()
 			? 0.
 			: (crl::now() - _started) / 1000.;
@@ -431,6 +407,16 @@ protected:
 	}
 
 	void mouseMoveEvent(QMouseEvent *e) override {
+		if (_pressedOn == Hit::Bubble && !_closing) {
+			// The bubble can be dragged (letting go closes the scene),
+			// "Open" stays right under it.
+			const auto d = e->pos() - _down;
+			_dragged = _dragged || (d.manhattanLength() > kDragThreshold);
+			_offset = QPointF(d) * 0.88;
+			_buttonRect = _buttonBase.translated(_offset.toPoint());
+			update();
+			return;
+		}
 		const auto over = _buttonRect.contains(e->pos());
 		if (_buttonOver != over) {
 			_buttonOver = over;
@@ -441,12 +427,19 @@ protected:
 
 	void mousePressEvent(QMouseEvent *e) override {
 		_pressedOn = hit(e->pos());
+		_down = e->pos();
+		_dragged = false;
 	}
 
 	void mouseReleaseEvent(QMouseEvent *e) override {
 		const auto on = hit(e->pos());
 		const auto pressed = std::exchange(_pressedOn, Hit::None);
-		if (on != pressed) {
+		if (pressed == Hit::Bubble) {
+			if (std::exchange(_dragged, false)) {
+				close();
+			}
+			return;
+		} else if (on != pressed) {
 			return;
 		} else if (on == Hit::Button) {
 			openAndClose();
@@ -467,7 +460,7 @@ private:
 		if (_buttonRect.contains(point)) {
 			return Hit::Button;
 		}
-		const auto d = QPointF(point) - _center;
+		const auto d = QPointF(point) - (_center + _offset);
 		return (d.x() * d.x() + d.y() * d.y() <= _radius * _radius)
 			? Hit::Bubble
 			: Hit::Outside;
@@ -488,11 +481,12 @@ private:
 		const auto top = std::min(
 			int(std::round(bubbleBottom)) + kSceneButtonGap,
 			h - 16 - kSceneButtonHeight);
-		_buttonRect = QRect(
+		_buttonBase = QRect(
 			(w - _buttonWidth) / 2,
 			top,
 			_buttonWidth,
 			kSceneButtonHeight);
+		_buttonRect = _buttonBase.translated(_offset.toPoint());
 	}
 
 	void transition(float64 to) {
@@ -540,7 +534,11 @@ private:
 	QSize _layoutFor;
 	QPointF _center;
 	float64 _radius = 0.;
+	QRect _buttonBase;
 	QRect _buttonRect;
+	QPointF _offset;
+	QPoint _down;
+	bool _dragged = false;
 	bool _buttonOver = false;
 	Hit _pressedOn = Hit::None;
 	bool _closing = false;
@@ -554,41 +552,29 @@ ProfileGiftBubbles::ProfileGiftBubbles(Descriptor &&descriptor)
 , _peer(descriptor.peer)
 , _userpicGeometry(std::move(descriptor.userpicGeometry))
 , _progress(std::move(descriptor.progress))
-, _contentBottom(std::move(descriptor.contentBottom))
-, _extraHeight(std::move(descriptor.extraHeight))
-, _requestExtraHeight(std::move(descriptor.requestExtraHeight)) {
+, _contentTop(std::move(descriptor.contentTop))
+, _contentBottom(std::move(descriptor.contentBottom)) {
 	_animation.init([=](crl::time now) { return tick(now); });
 
 	_header->setMouseTracking(true);
-	const auto hover = [=](QWidget *source, QEvent *e, bool frontOnly) {
-		const auto type = e->type();
-		if (type == QEvent::MouseMove) {
-			const auto pos = static_cast<QMouseEvent*>(e)->pos();
-			const auto point = (source == _header.get())
-				? pos
-				: source->mapTo(_header.get(), pos);
-			const auto index = hitTest(point, frontOnly);
-			if (index >= 0) {
-				setHovered(index);
-			}
-		}
-	};
 	base::install_event_filter(_header, [=](not_null<QEvent*> e) {
-		hover(_header.get(), e.get(), false);
-		return base::EventFilterResult::Continue;
+		return handleMouse(_header.get(), e.get(), false)
+			? base::EventFilterResult::Cancel
+			: base::EventFilterResult::Continue;
 	}, _lifetime);
 	if (const auto userpic = descriptor.userpicButton) {
 		// The near half of the orbit passes over the avatar button.
 		base::install_event_filter(userpic, [=](not_null<QEvent*> e) {
-			hover(userpic, e.get(), true);
-			return base::EventFilterResult::Continue;
+			return handleMouse(userpic, e.get(), true)
+				? base::EventFilterResult::Cancel
+				: base::EventFilterResult::Continue;
 		}, _lifetime);
 	}
 }
 
 ProfileGiftBubbles::~ProfileGiftBubbles() {
 	_scene = nullptr;
-	_focusLayer = nullptr;
+	_heldLayer = nullptr;
 	_large = nullptr;
 	for (const auto &bubble : _bubbles) {
 		if (bubble->animation && _player) {
@@ -660,11 +646,14 @@ void ProfileGiftBubbles::setGifts(
 	if (_hoveredId && !findBubble(_hoveredId)) {
 		setHovered(-1);
 	}
-	if (_focusId && !findBubble(_focusId)) {
-		_focusId = 0;
-		_focus.stop();
-		_focusLayer = nullptr;
-		_requestExtraHeight(0);
+	if (_liftId && !findBubble(_liftId)) {
+		_liftId = 0;
+	}
+	if (_pressedId && !findBubble(_pressedId)) {
+		_pressedId = 0;
+	}
+	if (_heldId && !findBubble(_heldId)) {
+		clearHold();
 	}
 	if (_sceneId && !findBubble(_sceneId)) {
 		_scene = nullptr;
@@ -763,9 +752,7 @@ void ProfileGiftBubbles::ensureLarge(Bubble &bubble) {
 			if (_scene) {
 				_scene->updateBubble();
 			}
-			if (_focusLayer && _focusLayer->isVisible()) {
-				_focusLayer->update();
-			}
+			updateHeldLayer();
 		}, large->lifetime);
 	}, large->lifetime);
 }
@@ -817,41 +804,68 @@ auto ProfileGiftBubbles::orbitPlacement(
 	return result;
 }
 
-float64 ProfileGiftBubbles::focusValue() const {
-	return _focus.value(_hoveredId ? 1. : 0.);
-}
-
-auto ProfileGiftBubbles::focusPlacement(
+auto ProfileGiftBubbles::heldPlacement(
 		const Bubble &bubble,
 		const QRect &userpic,
 		float64 progress,
 		crl::time now) const -> Placement {
-	auto result = orbitPlacement(bubble, userpic, progress, now);
-	const auto f = focusValue();
-	const auto press = _press.value(_pressed ? 1. : 0.);
-	const auto grown = kBubbleRadius
-		* (kHoverScale + (kPressScale - kHoverScale) * press);
-	auto radius = Lerp(result.radius, std::max(result.radius, grown), f);
-
-	// Inside the (maybe stretched) header, above the action buttons.
-	const auto limit = float64(_contentBottom());
-	const auto w = float64(_header->width());
-	const auto maxRadius = std::min(
-		(limit - 2. * kMargin) / (2. * kBodyHalfHeight),
-		(w / 2. - kMargin) / kBodyHalfWidth);
-	if (maxRadius >= result.radius) {
-		radius = std::min(radius, maxRadius);
+	const auto orbit = orbitPlacement(bubble, userpic, progress, now);
+	auto result = orbit;
+	auto weight = 0.;
+	if (!_returnStarted) {
+		// Pulled out of the orbit: follows the mouse and inflates only as
+		// it gets away from the avatar.
+		const auto g = anim::easeOutCubic(1., std::clamp(
+			(now - _grabStarted) / float64(kGrabDuration),
+			0.,
+			1.));
+		result.center = QPointF(
+			Lerp(orbit.center.x(), _dragPosition.x(), g),
+			Lerp(orbit.center.y(), _dragPosition.y(), g));
+		const auto avatar = QRectF(userpic).center();
+		const auto d = result.center - avatar;
+		const auto away = std::sqrt(d.x() * d.x() + d.y() * d.y())
+			- std::min(userpic.width(), userpic.height()) / 2.;
+		const auto grow = g * std::clamp(away / kGrowDistance, 0., 1.);
+		result.radius = Lerp(orbit.radius, kBubbleRadius * kHeldScale, grow);
+		result.tilt = Lerp(orbit.tilt, 0., g);
+		weight = g;
+	} else {
+		// Flies back to its place on the orbit on a small arc.
+		const auto back = std::clamp(
+			(now - _returnStarted) / float64(kReturnDuration),
+			0.,
+			1.);
+		const auto e = anim::easeOutQuint(1., back);
+		result.center = QPointF(
+			Lerp(_released.center.x(), orbit.center.x(), e),
+			Lerp(_released.center.y(), orbit.center.y(), e)
+				- std::sin(e * kPi) * kReturnArc);
+		result.radius = Lerp(_released.radius, orbit.radius, e);
+		result.tilt = Lerp(0., orbit.tilt, e);
+		weight = 1. - e;
 	}
-	const auto hw = radius * kBodyHalfWidth;
-	const auto hh = radius * kBodyHalfHeight;
+
+	// Inside the header: below the top bar, above the action buttons,
+	// inside the sides. With too little room it inflates less, but never
+	// shrinks below its orbit size.
+	const auto limit = float64(_contentBottom());
+	const auto top = std::min(float64(_contentTop()), limit);
+	const auto w = float64(_header->width());
+	const auto fit = std::min(
+		std::max(0., (limit - top - 2. * kMargin) / 2.) / kBodyHalfHeight,
+		(w / 2. - kMargin) / kBodyHalfWidth);
+	if (result.radius > fit) {
+		result.radius = std::max(fit, std::min(result.radius, orbit.radius));
+	}
+	const auto hw = result.radius * kBodyHalfWidth;
+	const auto hh = result.radius * kBodyHalfHeight;
 	const auto clamped = QPointF(
 		SafeClamp(result.center.x(), kMargin + hw, w - kMargin - hw),
-		SafeClamp(result.center.y(), kMargin + hh, limit - kMargin - hh));
+		SafeClamp(result.center.y(), top + kMargin + hh, limit - kMargin - hh));
 	result.center = QPointF(
-		Lerp(result.center.x(), clamped.x(), f),
-		Lerp(result.center.y(), clamped.y(), f));
-	result.radius = radius;
-	result.tilt *= (1. - f);
+		Lerp(result.center.x(), clamped.x(), weight),
+		Lerp(result.center.y(), clamped.y(), weight));
 	result.depth = 1.;
 	return result;
 }
@@ -881,23 +895,25 @@ void ProfileGiftBubbles::paintOrbit(
 	}
 	const auto userpic = _userpicGeometry();
 	const auto now = crl::now();
+	const auto lift = _liftId
+		? _lift.value((_hoveredId == _liftId) ? 1. : 0.)
+		: 0.;
 	auto hq = PainterHighQualityEnabler(p);
 	for (const auto &bubble : _bubbles) {
-		const auto focused = (bubble->id == _focusId) && _focusLayer;
-		const auto hidden = (bubble->id == _sceneId);
-		const auto placement = orbitPlacement(
-			*bubble,
-			userpic,
-			progress,
-			now);
+		const auto hidden = (bubble->id == _sceneId)
+			|| (bubble->id == _heldId);
+		auto placement = orbitPlacement(*bubble, userpic, progress, now);
 		const auto isFront = (placement.depth >= 0.);
 		if (isFront != front) {
 			continue;
 		}
+		if (bubble->id == _liftId) {
+			placement.radius *= 1. + (kHoverLift - 1.) * lift;
+		}
 		bubble->drawnCenter = placement.center;
-		bubble->drawnRadius = (hidden || focused) ? 0. : placement.radius;
+		bubble->drawnRadius = hidden ? 0. : placement.radius;
 		bubble->drawnFront = isFront;
-		if (hidden || focused || placement.alpha <= 0.) {
+		if (hidden || placement.alpha <= 0.) {
 			continue;
 		}
 		const auto extent = std::min(
@@ -985,28 +1001,25 @@ void ProfileGiftBubbles::paintBubble(
 	p.setOpacity(wasOpacity);
 }
 
-void ProfileGiftBubbles::paintFocusLayer(QPainter &p) {
-	const auto bubble = _focusId ? findBubble(_focusId) : nullptr;
+void ProfileGiftBubbles::paintHeldLayer(QPainter &p) {
+	const auto bubble = _heldId ? findBubble(_heldId) : nullptr;
 	if (!bubble || bubble->id == _sceneId) {
 		return;
 	}
-	const auto size = _focusLayer->size();
-	if (_focusClipSize != size) {
+	const auto size = _heldLayer->size();
+	if (_heldClipSize != size) {
 		// The header is rounded the same way (Mokagram radius 32).
-		_focusClipSize = size;
-		_focusClip = QPainterPath();
-		_focusClip.addRoundedRect(QRectF(QPoint(), size), 32., 32.);
+		_heldClipSize = size;
+		_heldClip = QPainterPath();
+		_heldClip.addRoundedRect(QRectF(QPoint(), size), 32., 32.);
 	}
 	auto hq = PainterHighQualityEnabler(p);
-	p.setClipPath(_focusClip);
-	const auto placement = focusPlacement(
+	p.setClipPath(_heldClip);
+	const auto placement = heldPlacement(
 		*bubble,
 		_userpicGeometry(),
 		_progress(),
 		crl::now());
-	bubble->drawnCenter = placement.center;
-	bubble->drawnRadius = placement.radius;
-	bubble->drawnFront = true;
 	paintBubble(p, *bubble, placement, true);
 	if (_player) {
 		_player->markFrameShown();
@@ -1014,7 +1027,7 @@ void ProfileGiftBubbles::paintFocusLayer(QPainter &p) {
 }
 
 int ProfileGiftBubbles::hitTest(QPoint point, bool frontOnly) const {
-	if (_sceneId || _progress() < 0.999) {
+	if (_sceneId || _heldId || _progress() < 0.999) {
 		return -1;
 	}
 	auto result = -1;
@@ -1039,6 +1052,64 @@ int ProfileGiftBubbles::hitTest(QPoint point, bool frontOnly) const {
 	return result;
 }
 
+bool ProfileGiftBubbles::handleMouse(
+		QWidget *source,
+		QEvent *e,
+		bool frontOnly) {
+	const auto type = e->type();
+	if (type == QEvent::Leave) {
+		if (!_pressedId) {
+			setHovered(-1);
+		}
+		return false;
+	} else if (type != QEvent::MouseMove
+		&& type != QEvent::MouseButtonPress
+		&& type != QEvent::MouseButtonRelease) {
+		return false;
+	}
+	const auto mouse = static_cast<QMouseEvent*>(e);
+	const auto point = (source == _header.get())
+		? mouse->pos()
+		: source->mapTo(_header.get(), mouse->pos());
+	const auto now = crl::now();
+	if (type == QEvent::MouseMove) {
+		if (_pressedId) {
+			if (_heldId) {
+				_dragPosition = QPointF(point);
+				updateHeldLayer();
+			} else if ((point - _pressPosition).manhattanLength()
+					> kDragThreshold) {
+				startHold(QPointF(point), now);
+			}
+			return true;
+		}
+		setHovered(hitTest(point, frontOnly));
+		return false;
+	} else if (type == QEvent::MouseButtonPress) {
+		if (mouse->button() != Qt::LeftButton || _pressedId) {
+			return false;
+		}
+		const auto index = hitTest(point, frontOnly);
+		if (index < 0) {
+			return false;
+		}
+		_pressedId = _bubbles[index]->id;
+		_pressPosition = point;
+		ensureAnimating();
+		return true;
+	}
+	if (!_pressedId || mouse->button() != Qt::LeftButton) {
+		return false;
+	}
+	const auto id = std::exchange(_pressedId, uint64(0));
+	if (_heldId && !_returnStarted) {
+		releaseHold(now);
+	} else if (!_heldId) {
+		openScene(id);
+	}
+	return true;
+}
+
 void ProfileGiftBubbles::setHovered(int index) {
 	const auto id = (index >= 0 && index < int(_bubbles.size()))
 		? _bubbles[index]->id
@@ -1046,130 +1117,148 @@ void ProfileGiftBubbles::setHovered(int index) {
 	if (_hoveredId == id) {
 		return;
 	}
-	if (!id) {
-		_pressed = false;
-		_press.stop();
-	}
-	auto from = focusValue();
-	if (id && _focusId && _focusId != id) {
-		// Switching bubbles: the previous one snaps back.
-		_focus.stop();
+	auto from = _liftId
+		? _lift.value((_hoveredId == _liftId) ? 1. : 0.)
+		: 0.;
+	if (id && _liftId != id) {
 		from = 0.;
 	}
 	_hoveredId = id;
+	_header->setCursor(id ? style::cur_pointer : style::cur_default);
 	if (id) {
-		_focusId = id;
-		if (const auto bubble = findBubble(id)) {
-			ensureLarge(*bubble);
-		}
-		if (!_focusLayer) {
-			_focusLayer = base::make_unique_q<FocusLayer>(
-				_header.get(),
-				[=](QPainter &p) { paintFocusLayer(p); },
-				[=](bool) { setPressed(true); },
-				[=](bool inside) {
-					const auto pressed = _pressed;
-					setPressed(false);
-					if (pressed && inside && _hoveredId) {
-						openScene(_hoveredId);
-					}
-				},
-				[=] { setHovered(-1); });
-			_focusLayer->setGeometry(_header->rect());
-			_header->sizeValue() | rpl::on_next([=](QSize size) {
-				_focusLayer->setGeometry(QRect(QPoint(), size));
-			}, _focusLayer->lifetime());
-		}
-		_focusLayer->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-		_focusMask = QRect();
-		updateFocusLayer(crl::now());
-		_focusLayer->show();
-		_focusLayer->raise();
-	} else if (_focusLayer) {
-		_focusLayer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+		_liftId = id;
 	}
-	_focus.start(
-		[=] { ensureAnimating(); updateArea(); },
+	_lift.start(
+		[=] { updateArea(); },
 		from,
 		id ? 1. : 0.,
-		kFocusDuration,
+		kLiftDuration,
 		anim::easeOutCubic);
 	ensureAnimating();
 	updateArea();
 }
 
-void ProfileGiftBubbles::setPressed(bool pressed) {
-	if (_pressed == pressed) {
+void ProfileGiftBubbles::startHold(QPointF position, crl::time now) {
+	const auto bubble = findBubble(_pressedId);
+	if (!bubble) {
+		_pressedId = 0;
 		return;
 	}
-	_pressed = pressed;
-	_press.start(
-		[=] { ensureAnimating(); updateArea(); },
-		pressed ? 0. : 1.,
-		pressed ? 1. : 0.,
-		kPressDuration,
-		anim::easeOutCubic);
+	_hoveredId = 0;
+	_liftId = 0;
+	_lift.stop();
+	_heldId = bubble->id;
+	_grabStarted = now;
+	_returnStarted = 0;
+	_dragPosition = position;
+	ensureLarge(*bubble);
+	if (!_heldLayer) {
+		_heldLayer = base::make_unique_q<HeldLayer>(
+			_header.get(),
+			[=](QPainter &p) { paintHeldLayer(p); });
+		_header->sizeValue() | rpl::on_next([=](QSize size) {
+			_heldLayer->setGeometry(QRect(QPoint(), size));
+		}, _heldLayer->lifetime());
+	}
+	_heldLayer->show();
+	_heldLayer->raise();
 	ensureAnimating();
+	updateArea();
 }
 
-void ProfileGiftBubbles::updateFocusLayer(crl::time now) {
-	if (!_focusLayer) {
+void ProfileGiftBubbles::releaseHold(crl::time now) {
+	const auto bubble = _heldId ? findBubble(_heldId) : nullptr;
+	if (!bubble) {
+		clearHold();
 		return;
 	}
-	const auto bubble = _focusId ? findBubble(_focusId) : nullptr;
-	if (!bubble || (!_hoveredId && !_focus.animating())) {
-		// Fully collapsed back to the orbit.
-		_focusId = 0;
-		_focusLayer->hide();
-		_focusMask = QRect();
-		return;
-	}
-	if (!_hoveredId) {
-		return;
-	}
-	const auto placement = focusPlacement(
+	_released = heldPlacement(
 		*bubble,
 		_userpicGeometry(),
 		_progress(),
 		now);
-	const auto r = placement.radius;
-	const auto mask = QRect(
-		int(std::floor(placement.center.x() - r)),
-		int(std::floor(placement.center.y() - r)),
-		int(std::ceil(2. * r)),
-		int(std::ceil(2. * r)));
-	if (_focusMask != mask) {
-		_focusMask = mask;
-		_focusLayer->setMask(QRegion(mask, QRegion::Ellipse));
+	_returnStarted = now;
+	if (anim::Disabled()) {
+		clearHold();
+	}
+	ensureAnimating();
+	updateArea();
+}
+
+void ProfileGiftBubbles::clearHold() {
+	_heldId = 0;
+	_grabStarted = 0;
+	_returnStarted = 0;
+	if (_heldLayer) {
+		_heldLayer->hide();
+	}
+	if (!_sceneId) {
+		_large = nullptr;
+	}
+	_header->update();
+}
+
+void ProfileGiftBubbles::updateHeldLayer() {
+	if (_heldLayer && _heldLayer->isVisible()) {
+		_heldLayer->update();
 	}
 }
 
-void ProfileGiftBubbles::updateStretch(crl::time now) {
-	auto target = 0;
-	const auto bubble = _focusId ? findBubble(_focusId) : nullptr;
-	const auto f = bubble ? focusValue() : 0.;
-	if (bubble && f > 0. && _progress() >= 0.999) {
-		const auto orbit = orbitPlacement(
-			*bubble,
-			_userpicGeometry(),
-			1.,
-			now);
-		const auto press = _press.value(_pressed ? 1. : 0.);
-		const auto grown = kBubbleRadius
-			* (kHoverScale + (kPressScale - kHoverScale) * press);
-		const auto halfHeight = grown * kBodyHalfHeight;
-		const auto base = float64(_contentBottom() - _extraHeight());
-		const auto need = std::max(
-			2. * (halfHeight + kMargin) - base,
-			std::max(orbit.center.y(), kMargin + halfHeight)
-				+ halfHeight
-				+ kMargin
-				- base);
-		target = std::clamp(int(std::ceil(need * f)), 0, kMaxStretch);
+bool ProfileGiftBubbles::tick(crl::time now) {
+	if (!canAnimate()) {
+		_lastTick = 0;
+		return false;
 	}
-	if (target != _extraHeight()) {
-		_requestExtraHeight(target);
+	const auto dt = _lastTick
+		? std::min(now - _lastTick, crl::time(100))
+		: crl::time(0);
+	_lastTick = now;
+	const auto holding = _pressedId || (_heldId && !_returnStarted);
+	if (!_hoveredId && !holding && !anim::Disabled()) {
+		_orbitTime += dt;
 	}
+	if (_heldId
+		&& _returnStarted
+		&& (now - _returnStarted >= kReturnDuration)) {
+		clearHold();
+	}
+
+	auto appearing = false;
+	for (const auto &bubble : _bubbles) {
+		if (now - bubble->shownAt < kAppearDuration) {
+			appearing = true;
+			break;
+		}
+	}
+	const auto busy = appearing || _lift.animating() || _heldId;
+	if (anim::Disabled() && !busy && !_pressedId) {
+		// A still picture: nothing to drive (and no repaint, otherwise
+		// the paint would start the loop again).
+		return false;
+	}
+	if (busy || (now - _lastUpdate >= kIdleFrame)) {
+		_lastUpdate = now;
+		updateArea();
+	}
+	return true;
+}
+
+void ProfileGiftBubbles::updateArea() {
+	if (_heldId) {
+		_header->update();
+		updateHeldLayer();
+		return;
+	}
+	const auto userpic = _userpicGeometry();
+	const auto k = userpic.width()
+		/ float64(st::infoProfileTopBarPhotoSize);
+	const auto bottom = int(std::ceil(
+		userpic.y() + userpic.height() / 2. + 90. * k)) + 1;
+	_header->update(
+		0,
+		0,
+		_header->width(),
+		std::min(_header->height(), bottom));
 }
 
 bool ProfileGiftBubbles::canAnimate() const {
@@ -1187,7 +1276,7 @@ bool ProfileGiftBubbles::canAnimate() const {
 			return false;
 		}
 	}
-	return _focusId || (_progress() > 0.5);
+	return _heldId || _pressedId || (_progress() > 0.5);
 }
 
 void ProfileGiftBubbles::ensureAnimating() {
@@ -1195,61 +1284,6 @@ void ProfileGiftBubbles::ensureAnimating() {
 		_lastTick = 0;
 		_animation.start();
 	}
-}
-
-bool ProfileGiftBubbles::tick(crl::time now) {
-	if (!canAnimate()) {
-		_lastTick = 0;
-		return false;
-	}
-	const auto dt = _lastTick
-		? std::min(now - _lastTick, crl::time(100))
-		: crl::time(0);
-	_lastTick = now;
-	if (!_hoveredId && !anim::Disabled()) {
-		_orbitTime += dt;
-	}
-	updateStretch(now);
-	updateFocusLayer(now);
-
-	auto appearing = false;
-	for (const auto &bubble : _bubbles) {
-		if (now - bubble->shownAt < kAppearDuration) {
-			appearing = true;
-			break;
-		}
-	}
-	const auto busy = appearing
-		|| _focus.animating()
-		|| _press.animating()
-		|| (_extraHeight() != 0 && !_focusId);
-	if (anim::Disabled() && !busy && !_hoveredId) {
-		// A still picture: nothing to drive (and no repaint, otherwise
-		// the paint would start the loop again).
-		return false;
-	}
-	if (busy || (now - _lastUpdate >= kIdleFrame)) {
-		_lastUpdate = now;
-		updateArea();
-	}
-	return true;
-}
-
-void ProfileGiftBubbles::updateArea() {
-	if (_focusId || _extraHeight() != 0) {
-		_header->update();
-		return;
-	}
-	const auto userpic = _userpicGeometry();
-	const auto k = userpic.width()
-		/ float64(st::infoProfileTopBarPhotoSize);
-	const auto bottom = int(std::ceil(
-		userpic.y() + userpic.height() / 2. + 86. * k)) + 1;
-	_header->update(
-		0,
-		0,
-		_header->width(),
-		std::min(_header->height(), bottom));
 }
 
 QRectF ProfileGiftBubbles::bubbleRectIn(
@@ -1369,7 +1403,7 @@ void ProfileGiftBubbles::paintScene(
 void ProfileGiftBubbles::finishScene() {
 	_scene = nullptr;
 	_sceneId = 0;
-	if (!_hoveredId && !_focusId) {
+	if (!_heldId) {
 		_large = nullptr;
 	}
 	updateArea();
