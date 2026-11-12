@@ -2785,9 +2785,17 @@ void AttachGiftSenderBadge(
 			badge->textMaxWidth()));
 		box->setMinimalTopSkip(minTop + badge->height() + margin.top());
 		const auto inner = Ui::MapFrom(parent, box, box->rect());
-		const auto top = std::max(
-			inner.y() - badge->height() - margin.top(),
-			outer.y() + minTop);
+		// StaticGram: never wider than the gift box itself, and hidden when a
+		// short window leaves no room above the box (it used to be drawn over
+		// the box header and the cover).
+		if (inner.width() > 0) {
+			badge->resizeToWidth(std::min(
+				badge->width(),
+				inner.width() - padding.left() - padding.right()));
+		}
+		const auto wanted = inner.y() - badge->height() - margin.top();
+		badge->setVisible(wanted >= outer.y() + minTop / 2);
+		const auto top = std::max(wanted, outer.y() + minTop);
 		const auto left = margin.left() + (available - badge->width()) / 2;
 		badge->move(left, top);
 	};

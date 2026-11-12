@@ -1,3 +1,7 @@
+7.4.3 (12.11.26)
+
+- The "sent you this gift" line no longer overlaps the gift window.
+
 7.4.2 (11.11.26)
 
 - Rounded windows and search fields, Material-style switches.
