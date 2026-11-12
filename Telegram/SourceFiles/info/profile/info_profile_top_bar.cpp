@@ -105,6 +105,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "ui/toast/toast.h"
+#include "staticgram/sg_profile_gift_bubbles.h"
 #include "boxes/sticker_set_box.h"
 #include "styles/style_chat.h"
 #include "styles/style_info.h"
@@ -840,10 +841,11 @@ bool TopBar::paintStaticGramBanner(QPainter &p, const QRect &clip) {
 		return false;
 	}
 	const auto w = width();
-	const auto h = height();
+	// StaticGram: the gift bubbles stretch is not part of the picture.
+	const auto h = height() - _sgExtraHeight.current();
 	// The picture is sized for the full header, so it slides up instead of
 	// zooming while the header collapses.
-	const auto fullHeight = std::max(maximumHeight(), h);
+	const auto fullHeight = std::max(staticGramBaseMaximumHeight(), h);
 	const auto ratio = style::DevicePixelRatio();
 	const auto id = StaticGram::BannerOfUser(
 		uint64(_peer->id.value & PeerId::kChatTypeMask)).id;
@@ -2135,7 +2137,7 @@ void TopBar::updateLabelsPosition() {
 }
 
 float64 TopBar::progressForHeight(int height) const {
-	const auto max = QWidget::maximumHeight();
+	const auto max = staticGramBaseMaximumHeight();
 	const auto min = _minForProgress;
 	const auto p = _savedMessages
 		? 0.
@@ -3079,14 +3081,14 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		const auto offset = QPoint(0, -shift);
 		if (collectible) {
 			_cachedGradient = Ui::CreateTopBgGradient(
-				QSize(width(), maximumHeight()),
+				QSize(width(), staticGramBaseMaximumHeight()),
 				collectible->centerColor,
 				collectible->edgeColor,
 				false,
 				offset);
 		} else if (colorProfile && colorProfile->bg.size() > 1) {
 			_cachedGradient = Ui::CreateTopBgGradient(
-				QSize(width(), maximumHeight()),
+				QSize(width(), staticGramBaseMaximumHeight()),
 				colorProfile->bg[1],
 				colorProfile->bg[0],
 				false,
@@ -3099,9 +3101,29 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		const auto x = (width()
 			- _cachedGradient.width() / style::DevicePixelRatio())
 				/ 2;
+		const auto extra = _sgExtraHeight.current();
 		const auto y = (height()
+			- extra
 			- _cachedGradient.height() / style::DevicePixelRatio())
 				/ 2;
+		if (extra > 0) {
+			// StaticGram: the stretched part continues the last row.
+			const auto ratio = style::DevicePixelRatio();
+			const auto bottom = y
+				+ _cachedGradient.height() / ratio;
+			p.drawImage(
+				QRectF(
+					x,
+					bottom - 1,
+					_cachedGradient.width() / ratio,
+					height() - bottom + 1),
+				_cachedGradient,
+				QRectF(
+					0,
+					_cachedGradient.height() - 1,
+					_cachedGradient.width(),
+					1));
+		}
 		if (clipTouchesRoundedCorners(clipBounds)) {
 			// Mokagram: радиус 32, внизу прямо только под музыкой.
 			constexpr auto radius = 32;
@@ -3131,7 +3153,9 @@ void TopBar::paintEvent(QPaintEvent *e) {
 		}
 	}
 
-	if (clipBounds.bottom() >= geometry.top()
+	if (_sgGiftBubbles) {
+		_sgGiftBubbles->paintBehind(p, clipBounds);
+	} else if (clipBounds.bottom() >= geometry.top()
 		&& clipBounds.top() <= geometry.bottom()) {
 		paintPinnedToTopGifts(p, clipBounds, geometry);
 	}
@@ -3153,6 +3177,9 @@ void TopBar::paintEvent(QPaintEvent *e) {
 				QRectF(rect()),
 				frameAlpha);
 		}
+	}
+	if (_sgGiftBubbles) {
+		_sgGiftBubbles->paintFront(p, clipBounds);
 	}
 
 	paintTabSubtitle(p);
@@ -3709,6 +3736,16 @@ void TopBar::setupNewGifts(
 		}
 	}
 
+	if (_source != Source::Preview) {
+		// StaticGram: glass bubbles instead of the static gift icons.
+		setupStaticGramGiftBubbles(controller);
+		_sgGiftBubbles->setGifts(filteredGifts);
+		_giftsAppearing = nullptr;
+		_lottiePlayer = nullptr;
+		_pinnedToTopGiftsFirstTimeShowed = true;
+		return;
+	}
+
 	_pinnedToTopGifts.reserve(filteredGifts.size());
 	if (filteredGifts.empty()) {
 		_giftsAppearing = nullptr;
@@ -3822,6 +3859,47 @@ void TopBar::setupNewGifts(
 			}, 0., 1., 400, anim::easeOutQuint);
 		}
 	}, _giftsLoadingLifetime);
+}
+
+void TopBar::setupStaticGramGiftBubbles(
+		not_null<Window::SessionController*> controller) {
+	if (_sgGiftBubbles) {
+		return;
+	}
+	_sgGiftBubbles = std::make_unique<StaticGram::ProfileGiftBubbles>(
+		StaticGram::ProfileGiftBubbles::Descriptor{
+			.header = this,
+			.controller = controller,
+			.peer = _peer,
+			.userpicButton = _userpicButton.get(),
+			.userpicGeometry = [=] { return userpicGeometry(); },
+			.progress = [=] { return _progress.current(); },
+			.contentBottom = [=] {
+				return _actions
+					? _actions->y()
+					: (height() - _pillsReserve.current());
+			},
+			.extraHeight = [=] { return _sgExtraHeight.current(); },
+			.requestExtraHeight = [=](int extra) {
+				setStaticGramExtraHeight(extra);
+			},
+		});
+}
+
+int TopBar::staticGramBaseMaximumHeight() const {
+	return QWidget::maximumHeight() - _sgExtraHeight.current();
+}
+
+void TopBar::setStaticGramExtraHeight(int extra) {
+	const auto applied = _sgExtraHeight.current();
+	if (applied == extra) {
+		return;
+	}
+	QWidget::setMaximumHeight(QWidget::maximumHeight() - applied + extra);
+	_cachedClipPath = QPainterPath();
+	_sgExtraHeight = extra;
+	updateLabelsPosition();
+	update();
 }
 
 QPointF TopBar::calculateGiftPosition(
