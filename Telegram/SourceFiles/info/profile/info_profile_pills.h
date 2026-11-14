@@ -30,7 +30,8 @@ public:
 		not_null<UserData*> user,
 		rpl::producer<std::optional<QColor>> edgeColor,
 		Fn<void()> showSavedMusic,
-		bool underButtons);
+		bool underButtons,
+		bool withMusic = true);
 	~PillsRow();
 
 	[[nodiscard]] rpl::producer<int> reserveValue() const;

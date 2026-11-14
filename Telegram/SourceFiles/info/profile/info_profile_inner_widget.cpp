@@ -52,6 +52,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
+#include "staticgram/sg_profile_music_plate.h"
 #include "styles/style_info.h"
 
 namespace Info {
@@ -173,6 +174,23 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 	if (_topic && _topic->creating()) {
 		stack.finalize();
 		return result;
+	}
+
+	// StaticGram: the profile music plate (exteraGram «Now playing»)
+	// right under the action buttons, instead of the music pill.
+	if (!_savedMessages && !_topic) {
+		const auto musicPeer = _sublist ? _sublist->sublistPeer() : _peer;
+		if (const auto user = musicPeer->asUser()) {
+			stack.add(Section{
+				.widget = StaticGram::CreateProfileMusicPlate(
+					result.data(),
+					_controller->parentController(),
+					user),
+				.shown = StaticGram::ProfileMusicPlateShownValue(user),
+				.bare = true,
+			});
+			stack.addPlainSeparator();
+		}
 	}
 
 	if (!_savedMessages) {

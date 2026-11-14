@@ -50,7 +50,8 @@ PillsRow::PillsRow(
 	not_null<UserData*> user,
 	rpl::producer<std::optional<QColor>> edgeColor,
 	Fn<void()> showSavedMusic,
-	bool underButtons)
+	bool underButtons,
+	bool withMusic)
 : _parent(parent)
 , _balance(std::make_unique<BalancePill>(
 	parent,
@@ -89,8 +90,11 @@ PillsRow::PillsRow(
 		music->setOverrideBg(color);
 	}, _lifetime);
 
-	ProfileMusicValue(
-		user
+	// StaticGram: the profile shows its music as a plate under the
+	// buttons (StaticGram::CreateProfileMusicPlate), not as a pill.
+	(withMusic
+		? ProfileMusicValue(user)
+		: rpl::single<DocumentData*>(nullptr)
 	) | rpl::on_next([=](DocumentData *document) {
 		if (document) {
 			music->updateData({ Ui::Text::FormatSongNameFor(document) });
@@ -225,7 +229,8 @@ void TopBar::setupPills(
 		user,
 		_edgeColor.value(),
 		std::move(showSavedMusic),
-		_hasActions);
+		_hasActions,
+		(_source != Source::Profile));
 	_pills->reserveValue(
 	) | rpl::on_next([=](int reserve) {
 		applyPillsReserve(reserve);
