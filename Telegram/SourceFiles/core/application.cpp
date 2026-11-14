@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mokagram/avatar/mokagram_avatar_shape.h"
 #include "mokagram/settings/mokagram_settings.h"
 #include "mokagram/perf/mokagram_perf.h"
+#include "mokagram/music/mokagram_music_ui.h"
 #include "staticgram/sg_moka_features.h"
 
 #include "data/data_abstract_structure.h"
@@ -333,6 +334,11 @@ void Application::run() {
 	// StaticGram 14.11: brought back streamer mode and anti-lag.
 	StaticGram::MokaFeatures::RegisterSettings();
 	Mokagram::Perf::Start();
+#ifdef Q_OS_LINUX
+	// mokaGram music: control socket for the Omarchy bar player panel
+	// (tools/omarchy/ecronx.player), $XDG_RUNTIME_DIR/mokagram/ctl.sock.
+	Mokagram::Music::StartShellBridge();
+#endif // Q_OS_LINUX
 
 	style::SetCustomFont(settings().customFontFamily());
 	style::internal::StartFonts();

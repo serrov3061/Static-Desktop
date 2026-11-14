@@ -6,8 +6,12 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/player/media_player_widget.h"
+#include "mokagram/music/mokagram_soundcloud.h"
+#include "mokagram/music/mokagram_music_ui.h"
+#include "mokagram/settings/mokagram_settings.h"
+#include "mokagram/lang/mokagram_lang.h"
+#include "data/data_document.h"
 #include "ui/painter.h"
-#include "ui/image/image.h"
 #include "styles/style_menu_icons.h"
 
 #include "platform/platform_specific.h"
@@ -24,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/labels.h"
 #include "ui/widgets/continuous_sliders.h"
 #include "ui/widgets/shadow.h"
+#include "ui/abstract_button.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/dropdown_menu.h"
@@ -49,6 +54,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_mokagram_motion.h"
 #include "ui/effects/animations.h"
 #include "ui/power_saving.h"
+#include <QtGui/QGuiApplication>
 #include <QtGui/QPainterPath>
 #include <cmath>
 
@@ -62,6 +68,64 @@ namespace {
 }
 [[nodiscard]] int WaveHalfHeight() {
 	return WaveHeight() / 2;
+}
+
+// Mokagram: круглый виниловый диск, обложка внутри вращается.
+void PaintDisc(
+		QPainter &p,
+		const QRectF &box,
+		const QPixmap &label,
+		double angle) {
+	const auto radius = std::min(box.width(), box.height()) / 2.;
+	const auto center = box.center();
+	auto hq = PainterHighQualityEnabler(p);
+	p.setPen(Qt::NoPen);
+	auto base = QRadialGradient(center, radius);
+	base.setColorAt(0., QColor(0x1c, 0x1c, 0x1e));
+	base.setColorAt(0.6, QColor(0x10, 0x10, 0x11));
+	base.setColorAt(1., QColor(0x07, 0x07, 0x08));
+	p.setBrush(base);
+	p.drawEllipse(center, radius, radius);
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 14), 1.));
+	for (auto r = radius * 0.7; r < radius * 0.97; r += radius * 0.09) {
+		p.drawEllipse(center, r, r);
+	}
+	auto sheen = QConicalGradient(center, 35.);
+	sheen.setColorAt(0., QColor(255, 255, 255, 0));
+	sheen.setColorAt(0.07, QColor(255, 255, 255, 34));
+	sheen.setColorAt(0.14, QColor(255, 255, 255, 0));
+	sheen.setColorAt(0.5, QColor(255, 255, 255, 0));
+	sheen.setColorAt(0.57, QColor(255, 255, 255, 26));
+	sheen.setColorAt(0.64, QColor(255, 255, 255, 0));
+	sheen.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setPen(Qt::NoPen);
+	p.setBrush(sheen);
+	p.drawEllipse(center, radius * 0.98, radius * 0.98);
+	const auto inner = radius * 0.64;
+	p.save();
+	p.translate(center);
+	p.rotate(angle);
+	auto clip = QPainterPath();
+	clip.addEllipse(QPointF(), inner, inner);
+	p.setClipPath(clip);
+	const auto field = QRectF(-inner, -inner, inner * 2, inner * 2);
+	if (label.isNull()) {
+		p.fillRect(field, QColor(0x23, 0x23, 0x25));
+	} else {
+		const auto scaled = QSizeF(label.size()).scaled(field.size(), Qt::KeepAspectRatioByExpanding);
+		p.drawPixmap(
+			QRectF(-scaled.width() / 2, -scaled.height() / 2, scaled.width(), scaled.height()),
+			label,
+			QRectF(QPointF(), QSizeF(label.size())));
+	}
+	p.restore();
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(0, 0, 0, 120), 1.));
+	p.drawEllipse(center, inner, inner);
+	p.setPen(Qt::NoPen);
+	p.setBrush(QColor(0x0b, 0x0b, 0x0c));
+	p.drawEllipse(center, radius * 0.09, radius * 0.09);
 }
 
 // Mokagram: верхняя полоса плеера, волнистая как в полноэкранном плеере.
@@ -168,10 +232,15 @@ private:
 
 Ui::Text::FormatSongName::ComposedName SongNameForPlayback(
 		const AudioMsgId &id) {
+	auto result = Ui::Text::FormatSongName::ComposedName();
+	if (Mokagram::Music::OwnsTrack(id)
+		&& Mokagram::Music::CurrentTrackInfo(result.title, result.performer)) {
+		return result;
+	}
 	const auto document = id.audio();
 	return document
 		? Ui::Text::FormatSongNameFor(document).composedName()
-		: Ui::Text::FormatSongName::ComposedName();
+		: result;
 }
 
 } // namespace
@@ -190,6 +259,8 @@ Widget::Widget(
 , _volumeToggle(rightControls(), st::mediaPlayerVolumeToggle)
 , _repeatToggle(rightControls(), st::mediaPlayerRepeatButton)
 , _orderToggle(rightControls(), st::mediaPlayerOrderButton)
+, _lyricsToggle(rightControls())
+, _fullscreenToggle(rightControls())
 , _speedToggle(rightControls(), st::mediaPlayerSpeedButton)
 , _close(this, st::mediaPlayerClose)
 , _shadow(this)
@@ -227,6 +298,24 @@ Widget::Widget(
 	setAttribute(Qt::WA_OpaquePaintEvent);
 	setMouseTracking(true);
 	resize(width(), st::mediaPlayerHeight + st::lineWidth);
+	Mokagram::Music::CoversChanged(
+	) | rpl::on_next([=] {
+		update();
+	}, lifetime());
+	Mokagram::Music::QueueChanges(
+	) | rpl::on_next([=] {
+		handlePlaylistUpdate();
+	}, lifetime());
+	events(
+	) | rpl::filter([](not_null<QEvent*> e) {
+		return e->type() == QEvent::ContextMenu;
+	}) | rpl::on_next([=](not_null<QEvent*> e) {
+		if (Mokagram::Music::OwnsTrack(_lastSongId)) {
+			Mokagram::Music::ShowCurrentTrackMenu(
+				_controller,
+				static_cast<QContextMenuEvent*>(e.get())->globalPos());
+		}
+	}, lifetime());
 
 	setupRightControls();
 
@@ -260,6 +349,88 @@ Widget::Widget(
 	});
 	_playPause->setClickedCallback([=] {
 		instance()->playPauseCancelClicked(_type);
+	});
+
+	// Mokagram: кнопка «Текст песни», открывает панель справа от чата.
+	_lyricsToggle->resize(st::mediaPlayerRepeatButton.width, st::mediaPlayerRepeatButton.height);
+	_lyricsToggle->setPointerCursor(true);
+	_lyricsToggle->setToolTip(QString::fromUtf8(Mokagram::Lang::Tr("Текст песни")));
+	_lyricsToggle->paintOn([=](QPainter &p) {
+		const auto on = Mokagram::Settings::Bool(u"lyrics.enabled"_q);
+		const auto usable = on || Mokagram::Music::LyricsAvailable();
+		auto hq = PainterHighQualityEnabler(p);
+		auto color = (on ? st::mediaPlayerActiveFg : st::windowSubTextFg)->c;
+		color.setAlphaF(!usable
+			? 0.22
+			: (on || _lyricsToggle->isOver())
+			? 1.
+			: 0.55);
+		auto pen = QPen(color, 1.7);
+		pen.setCapStyle(Qt::RoundCap);
+		p.setPen(pen);
+		const auto x = (_lyricsToggle->width() - 16) / 2.;
+		auto y = (_lyricsToggle->height() - 10) / 2. + 3.;
+		p.drawLine(QPointF(x, y), QPointF(x + 16, y));
+		p.drawLine(QPointF(x, y + 5), QPointF(x + 11, y + 5));
+		p.drawLine(QPointF(x, y + 10), QPointF(x + 14, y + 10));
+	});
+	// Mokagram: кнопка «Во весь экран», открывает полноэкранный плеер.
+	_fullscreenToggle->resize(st::mediaPlayerRepeatButton.width, st::mediaPlayerRepeatButton.height);
+	_fullscreenToggle->setPointerCursor(true);
+	_fullscreenToggle->setToolTip(QString::fromUtf8(Mokagram::Lang::Tr("Во весь экран")));
+	_fullscreenToggle->paintOn([=](QPainter &p) {
+		auto hq = PainterHighQualityEnabler(p);
+		auto color = (_fullscreenToggle->isOver()
+			? st::windowFg
+			: st::windowSubTextFg)->c;
+		auto pen = QPen(color, 1.7);
+		pen.setCapStyle(Qt::RoundCap);
+		pen.setJoinStyle(Qt::RoundJoin);
+		p.setPen(pen);
+		p.setBrush(Qt::NoBrush);
+		const auto x = (_fullscreenToggle->width() - 12) / 2.;
+		const auto y = (_fullscreenToggle->height() - 12) / 2. + 3.;
+		const auto corner = [&](double cx, double cy, double dx, double dy) {
+			p.drawPolyline(QPolygonF({
+				QPointF(cx + dx * 4, cy),
+				QPointF(cx, cy),
+				QPointF(cx, cy + dy * 4) }));
+		};
+		corner(x, y, 1, 1);
+		corner(x + 12, y, -1, 1);
+		corner(x, y + 12, 1, -1);
+		corner(x + 12, y + 12, -1, -1);
+	});
+	_fullscreenToggle->setClickedCallback([=] {
+		Mokagram::Music::ShowFullscreenPlayer(_controller);
+	});
+	const auto updateLyricsToggle = [=] {
+		const auto usable = Mokagram::Settings::Bool(u"lyrics.enabled"_q)
+			|| Mokagram::Music::LyricsAvailable();
+		_lyricsToggle->setDisabled(!usable);
+		_lyricsToggle->setPointerCursor(usable);
+		_lyricsToggle->update();
+	};
+	Mokagram::Music::LyricsAvailabilityChanges(
+	) | rpl::on_next(updateLyricsToggle, lifetime());
+	updateLyricsToggle();
+	// Mokagram: без lyrics аватарки комментариев стоят на полосе прогресса.
+	Mokagram::Music::AttachCommentsToPlayer(
+		_controller, this, _playbackSlider.data(), true,
+		[=] { return _type == AudioMsgId::Type::Song; });
+	_lyricsToggle->setClickedCallback([=] {
+		Mokagram::Music::ToggleLyricsPanel(_controller, this);
+		_lyricsToggle->update();
+	});
+	Mokagram::Settings::Changed(
+	) | rpl::filter([](const QString &key) {
+		return key == u"lyrics.enabled"_q;
+	}) | rpl::on_next([=] {
+		updateLyricsToggle();
+		Mokagram::Music::SyncLyricsPanel(_controller, this);
+	}, lifetime());
+	crl::on_main(this, [=] {
+		Mokagram::Music::SyncLyricsPanel(_controller, this);
 	});
 
 	updateVolumeToggleIcon();
@@ -545,6 +716,10 @@ void Widget::updateControlsGeometry() {
 		_orderToggle->moveToRight(right, 0); right += _orderToggle->width();
 	}
 	_volumeToggle->moveToRight(right, 0); right += _volumeToggle->width();
+	if (_type == AudioMsgId::Type::Song) {
+		_lyricsToggle->moveToRight(right, 0); right += _lyricsToggle->width();
+		_fullscreenToggle->moveToRight(right, 0); right += _fullscreenToggle->width();
+	}
 
 	updateControlsWrapGeometry();
 
@@ -590,6 +765,13 @@ void Widget::paintEvent(QPaintEvent *e) {
 			QRect(0, height() - WaveHalfHeight(), width(), WaveHalfHeight()),
 			st::topBarBg);
 	}
+	if (_type == AudioMsgId::Type::Song) {
+		auto tint = Mokagram::Music::CurrentCoverAccent();
+		if (tint.isValid()) {
+			tint.setAlpha(6);
+			p.fillRect(fill, tint);
+		}
+	}
 	// Mokagram: обложка слева.
 	if (_type == AudioMsgId::Type::Song) {
 		const auto size = 52;
@@ -602,9 +784,34 @@ void Widget::paintEvent(QPaintEvent *e) {
 		auto path = QPainterPath();
 		path.addRoundedRect(art, 12, 12);
 		const auto current = instance()->current(AudioMsgId::Type::Song);
-		const auto thumbnail = _songMedia ? _songMedia->thumbnail() : nullptr;
-		const auto cover = thumbnail ? thumbnail->original() : QImage();
-		if (!cover.isNull()) {
+		const auto cover = Mokagram::Music::CoverForPlayback(current);
+		const auto vinyl = Mokagram::Settings::Bool(u"player.vinyl"_q);
+		if (vinyl) {
+			const auto now = crl::now();
+			const auto speed = PowerSaving::On(PowerSaving::kAnimations)
+				? 0.
+				: _spin.value(_discPlaying ? 1. : 0.);
+			if (_discTime) {
+				_discAngle = std::fmod(
+					_discAngle + 80. * speed * std::min<crl::time>(now - _discTime, 100) / 1000.,
+					360.);
+			}
+			_discTime = now;
+			if (!cover.isNull() && _discLabelKey != cover.cacheKey()) {
+				_discLabelKey = cover.cacheKey();
+				_discLabel = QPixmap::fromImage(cover.scaled(
+					QSize(96, 96),
+					Qt::KeepAspectRatioByExpanding,
+					Qt::SmoothTransformation));
+			}
+			PaintDisc(
+				p,
+				QRectF(art),
+				cover.isNull() ? QPixmap() : _discLabel,
+				_discAngle);
+		}
+		if (vinyl) {
+		} else if (!cover.isNull()) {
 			p.save();
 			p.setClipPath(path);
 			p.drawImage(art, cover);
@@ -713,6 +920,25 @@ void Widget::mousePressEvent(QMouseEvent *e) {
 }
 
 void Widget::mouseReleaseEvent(QMouseEvent *e) {
+	// Mokagram: клик по обложке открывает очередь и управление, по названию
+	// музыку с последним запросом.
+	if (_type == AudioMsgId::Type::Song) {
+		const auto cover = QRect(14, (st::mediaPlayerHeight - 52) / 2, 52, 52);
+		if (cover.contains(e->pos())) {
+			Mokagram::Music::ShowPlayerBox(_controller);
+			return;
+		}
+		const auto left = getNameLeft();
+		const auto labels = QRect(
+			left,
+			0,
+			width() - left - _rightControls->width() - _close->width(),
+			height() - st::mediaPlayerPlayback.fullWidth);
+		if (labels.contains(e->pos())) {
+			Mokagram::Music::ShowMusicBox(_controller);
+			return;
+		}
+	}
 	if (auto downLabels = base::take(_labelsDown)) {
 		if (_labelsOver != downLabels) {
 			return;
@@ -844,7 +1070,9 @@ int Widget::getTimeRight() const {
 	auto result = 0;
 	result += _volumeToggle->width();
 	if (_type == AudioMsgId::Type::Song) {
-		result += _repeatToggle->width()
+		result += _lyricsToggle->width()
+			+ _fullscreenToggle->width()
+			+ _repeatToggle->width()
 			+ _orderToggle->width();
 	}
 	if (hasPlaybackSpeedControl()) {
@@ -918,6 +1146,8 @@ bool Widget::hasPlaybackSpeedControl() const {
 void Widget::updateControlsVisibility() {
 	_repeatToggle->setVisible(_type == AudioMsgId::Type::Song);
 	_orderToggle->setVisible(_type == AudioMsgId::Type::Song);
+	_lyricsToggle->setVisible(_type == AudioMsgId::Type::Song);
+	_fullscreenToggle->setVisible(_type == AudioMsgId::Type::Song);
 	_speedToggle->setVisible(hasPlaybackSpeedControl());
 	if (!_shadow->isHidden()) {
 		_playbackSlider->setVisible(_type == AudioMsgId::Type::Song);
@@ -969,8 +1199,24 @@ void Widget::handleSongUpdate(const TrackState &state) {
 		? tr::lng_shortcuts_media_pause(tr::now)
 		: tr::lng_shortcuts_media_play(tr::now));
 
-	const auto playing = showPause && !state.id.audio()->loading();
-	static_cast<WavySlider*>(_playbackSlider.data())->setPlaying(playing);
+	const auto spinning = showPause && !state.id.audio()->loading();
+	static_cast<WavySlider*>(_playbackSlider.data())->setPlaying(spinning);
+	if (_discPlaying != spinning) {
+		_discPlaying = spinning;
+		_spin.start([=] { update(); }, spinning ? 0. : 1., spinning ? 1. : 0., spinning ? 500 : 1100, anim::easeOutCubic);
+		if (!_discAnimation.animating()) {
+			_discAnimation.init([=] {
+				const auto more = isVisible()
+					&& (_discPlaying || _spin.animating())
+					&& !PowerSaving::On(PowerSaving::kAnimations);
+				if (more) {
+					update(0, 0, 100, st::mediaPlayerHeight);
+				}
+				return more;
+			});
+			_discAnimation.start();
+		}
+	}
 	updateTimeText(state);
 }
 
@@ -1064,7 +1310,8 @@ void Widget::refreshSongCover() {
 	}
 	const auto document = _lastSongId.audio();
 	if (_type == AudioMsgId::Type::Song
-		&& document) {
+		&& document
+		&& !Mokagram::Music::OwnsTrack(_lastSongId)) {
 		_songMedia = document->createMediaView();
 		if (document->hasThumbnail() && !_songMedia->thumbnail()) {
 			document->session().downloaderTaskFinished(

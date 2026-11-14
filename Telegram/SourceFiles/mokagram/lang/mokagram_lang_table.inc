@@ -339,3 +339,6 @@
 	{ "Подпись StaticGram", "StaticGram caption" },
 	{ "Клиент продолжает работать со свёрнутым окном, уведомления не останавливаются. Если выключить, крестик закрывает клиент.", "The client keeps working with the window hidden, notifications go on. When off, the close button quits the client." },
 	{ "Клиент следит за подвисаниями интерфейса. Если их много, он на время отключает тяжёлые анимации, а когда всё спокойно, возвращает как было.", "The client watches for interface stalls. If there are many, it turns heavy animations off for a while and brings them back when things calm down." },
+	{ "В верхней панели плеера обложка круглая, как виниловый диск: крутится при воспроизведении и плавно останавливается на паузе.", "In the player's top bar the cover is round like a vinyl disc: it spins during playback and smoothly stops on pause." },
+	{ "Обложка в виде диска", "Vinyl disc cover" },
+	{ "Во весь экран", "Full screen" },

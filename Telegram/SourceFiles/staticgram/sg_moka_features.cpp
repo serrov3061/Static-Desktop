@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mokagram/streamer/mokagram_streamer.h"
 #include "mokagram/quote/mokagram_quote.h"
 #include "mokagram/music/mokagram_motion.h"
+#include "mokagram/music/mokagram_soundcloud.h"
 #include "settings/settings_common.h"
 #include "ui/boxes/single_choice_box.h"
 #include "ui/layers/generic_box.h"
@@ -192,6 +193,13 @@ void RegisterMusic() {
 		.defaultValue = true,
 	});
 	add({
+		.key = u"player.vinyl"_q,
+		.title = Tr("Обложка в виде диска"),
+		.description = Tr("В верхней панели плеера обложка круглая, как виниловый диск: крутится при воспроизведении и плавно останавливается на паузе."),
+		.kind = S::Kind::Bool,
+		.defaultValue = false,
+	});
+	add({
 		.key = u"player.autoplay_next"_q,
 		.title = Tr("Автовоспроизведение следующего"),
 		.description = Tr("После трека, голосового или кружка сам включается следующий."),
@@ -236,6 +244,19 @@ void RegisterMusic() {
 	});
 	Mokagram::Music::RegisterMotionSettings();
 	Mokagram::Music::RegisterSoundCloudSettings();
+	// The login row shows the connected account, as on the mokaGram page.
+	static auto lifetime = rpl::lifetime();
+	Mokagram::Music::Account::Changes(
+	) | rpl::on_next([] {
+		const auto info = Mokagram::Music::Account::User();
+		S::SetString(
+			u"music.soundcloud_login"_q,
+			!Mokagram::Music::Account::IsLoggedIn()
+				? Tr("Подключить")
+				: info.username.isEmpty()
+				? Tr("Подключено")
+				: (u"@"_q + info.username));
+	}, lifetime);
 }
 
 void IntBox(not_null<Ui::GenericBox*> box, const S::Entry &entry) {
