@@ -1190,8 +1190,10 @@ void System::playSound(
 Manager::DisplayOptions Manager::getNotificationOptions(
 		HistoryItem *item,
 		Data::ItemNotificationType type) const {
+	// Режим стримера принудительно скрывает имя, фото и текст.
 	const auto hideEverything = Core::App().passcodeLocked()
-		|| forceHideDetails();
+		|| forceHideDetails()
+		|| Mokagram::Streamer::Active(Mokagram::Streamer::Field::Notify);
 	const auto view = Core::App().settings().notifyView();
 	const auto peer = item ? item->history()->peer.get() : nullptr;
 	const auto topic = item ? item->topic() : nullptr;
@@ -1387,10 +1389,17 @@ TextWithEntities Manager::addTargetAccountName(
 	if (!add) {
 		return title;
 	}
-	return title.append(accountNameSeparator()).append(
-		(session->user()->username().isEmpty()
-			? session->user()->name()
-			: session->user()->username()));
+	const auto hasUsername = !session->user()->username().isEmpty();
+	auto account = hasUsername
+		? session->user()->username()
+		: session->user()->name();
+	const auto field = hasUsername
+		? Mokagram::Streamer::Field::Username
+		: Mokagram::Streamer::Field::Name;
+	if (Mokagram::Streamer::Active(field)) {
+		account = Mokagram::Streamer::Mask(field, account);
+	}
+	return title.append(accountNameSeparator()).append(account);
 }
 
 QString Manager::addTargetAccountName(

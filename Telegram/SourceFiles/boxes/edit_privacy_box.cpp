@@ -1357,7 +1357,11 @@ void EditDirectMessagesPriceBox(
 		const auto link = channel->session().createInternalLinkFull(username)
 			+ kDirectParam.utf8();
 		const auto copyLink = [=] {
-			TextUtilities::SetClipboardText(TextForMimeData::Simple(link));
+			if (Mokagram::Streamer::CopyBlocked(Mokagram::Streamer::Field::Link)) {
+				return;
+			}
+			TextUtilities::SetClipboardText(TextForMimeData::Simple(
+				Mokagram::Streamer::ForCopy(Mokagram::Streamer::Field::Link, link)));
 			box->uiShow()->showToast({
 				.text = { tr::lng_group_invite_copied(tr::now) },
 				.iconLottie = u"toast/voip_invite"_q,

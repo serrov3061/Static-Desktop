@@ -72,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_window.h"
+#include "mokagram/streamer/mokagram_streamer.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtCore/QBuffer>
@@ -619,7 +620,18 @@ void SetupRows(
 		Info::Profile::NameValue(self) | rpl::map(tr::marked),
 		tr::lng_profile_copy_fullname(tr::now),
 		showEditName,
-		{ &st::menuIconProfile });
+		{ &st::menuIconProfile },
+		false,
+		nullptr,
+		nullptr,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (Active(Field::Name)) {
+				SetClipboard(Field::Name, self->name());
+			} else {
+				QGuiApplication::clipboard()->setText(shown);
+			}
+		});
 	if (targets) {
 		targets->name = nameButton;
 	}
@@ -642,7 +654,15 @@ void SetupRows(
 		[=](not_null<Ui::PopupMenu*> menu) {
 			Info::Profile::AddPhoneSpoilerMenu(menu, self);
 		},
-		&st::menuIconCopy);
+		&st::menuIconCopy,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (Active(Field::Phone)) {
+				Info::Profile::CopyPhoneToClipboard(self);
+			} else {
+				QGuiApplication::clipboard()->setText(shown);
+			}
+		});
 	if (targets) {
 		targets->phone = phoneButton;
 	}
@@ -691,7 +711,23 @@ void SetupRows(
 				session->api().usernames().requestToCache(session->user());
 			}, box->lifetime());
 		},
-		{ &st::menuIconUsername });
+		{ &st::menuIconUsername },
+		false,
+		nullptr,
+		nullptr,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (!Active(Field::Username)) {
+				QGuiApplication::clipboard()->setText(shown);
+				return;
+			}
+			// В показанном тексте маска, настоящий ник берём из данных.
+			const auto &list = self->usernames();
+			const auto real = list.empty() ? self->username() : list.front();
+			if (!real.isEmpty()) {
+				SetClipboard(Field::Username, '@' + real);
+			}
+		});
 	if (targets) {
 		targets->username = usernameButton;
 	}
@@ -943,6 +979,10 @@ void SetupAccountsWrap(
 		}
 
 		addAction(tr::lng_profile_copy_phone(tr::now), [=] {
+			if (Mokagram::Streamer::Active(Mokagram::Streamer::Field::Phone)) {
+				Info::Profile::CopyPhoneToClipboard(session->user());
+				return;
+			}
 			Info::Profile::CopyPhoneToClipboard(
 				Info::Profile::PhoneValue(session->user()));
 		}, &st::menuIconCopy);

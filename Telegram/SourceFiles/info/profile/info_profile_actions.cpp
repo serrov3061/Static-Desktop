@@ -20,6 +20,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_key_modifiers.h"
 #include "base/timer_rpl.h"
 #include "base/unixtime.h"
+#include "mokagram/misc/mokagram_misc.h"
+#include "mokagram/misc/mokagram_datereg.h"
+#include "mokagram/notes/mokagram_notes.h"
+#include "mokagram/streamer/mokagram_streamer.h"
 #include "boxes/choose_filter_box.h"
 #include "boxes/peer_list_box.h"
 #include "boxes/peers/add_bot_to_chat_box.h"
@@ -125,6 +129,29 @@ namespace {
 
 constexpr auto kDay = Data::WorkingInterval::kDay;
 constexpr auto kPeerIdLinkIndex = uint16(1);
+constexpr auto kBubbleRadius = 26.;
+
+// Режим стримера: настоящий ник берём из данных, а не из показанного текста.
+[[nodiscard]] QString PrimaryUsername(not_null<PeerData*> peer) {
+	if (const auto user = peer->asUser()) {
+		const auto &list = user->usernames();
+		return list.empty() ? user->username() : list.front();
+	}
+	return peer->username();
+}
+
+// Текст для перетаскивания: по правилу копирования, но не пустой.
+[[nodiscard]] QString DragTextFor(
+		Mokagram::Streamer::Field field,
+		const QString &real) {
+	if (!Mokagram::Streamer::Active(field)) {
+		return real;
+	}
+	auto result = Mokagram::Streamer::ForCopy(field, real);
+	return result.isEmpty()
+		? Mokagram::Streamer::Mask(field, real)
+		: result;
+}
 
 class DraggableUrlClickHandler final : public UrlClickHandler {
 public:
@@ -211,7 +238,16 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 				+ addToLink;
 		}
 		if (!link.isEmpty()) {
-			TextUtilities::SetClipboardText({ link });
+			if (peer->isSelf()
+				&& Mokagram::Streamer::Active(Mokagram::Streamer::Field::Link)) {
+				if (!Mokagram::Streamer::SetClipboard(
+						Mokagram::Streamer::Field::Link,
+						link)) {
+					return;
+				}
+			} else {
+				TextUtilities::SetClipboardText({ link });
+			}
 			if (const auto strong = weak.get()) {
 				strong->showToast({
 					.text = {
@@ -233,10 +269,11 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 [[nodiscard]] rpl::producer<TextWithEntities> AboutWithAdvancedValue(
 		not_null<PeerData*> peer) {
 
-	return AboutValue(
-		peer
-	) | rpl::map([=](TextWithEntities &&value) {
-		if (ShowPeerIdBelowAbout.value()) {
+	return rpl::combine(
+		AboutValue(peer),
+		Mokagram::Streamer::ActiveValue(Mokagram::Streamer::Field::Id)
+	) | rpl::map([=](TextWithEntities &&value, bool hideId) {
+		if (false && ShowPeerIdBelowAbout.value()) {
 			using namespace Ui::Text;
 			if (!value.empty()) {
 				value.append("\n\n");
@@ -244,7 +281,11 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 			value.append(Italic(u"id: "_q));
 			const auto raw = peer->id.value & PeerId::kChatTypeMask;
 			value.append(Link(
-				Italic(Lang::FormatCountDecimal(raw)),
+				Italic((hideId && peer->isSelf())
+					? Mokagram::Streamer::Mask(
+						Mokagram::Streamer::Field::Id,
+						Lang::FormatCountDecimal(raw))
+					: Lang::FormatCountDecimal(raw)),
 				kPeerIdLinkIndex));
 		}
 		if (ShowChannelJoinedBelowAbout.value()) {
@@ -278,18 +319,23 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 void SetupAboutPeerIdDrag(
 		not_null<Ui::FlatLabel*> label,
 		not_null<PeerData*> peer) {
-	if (!ShowPeerIdBelowAbout.value()) {
+	// Mokagram: ID вынесен в отдельную строку, а эта ссылка перехватывала
+	// первое упоминание (@юзернейм) в тексте о себе.
+	if (true || !ShowPeerIdBelowAbout.value()) {
 		return;
 	}
 	const auto id = QString::number(peer->id.value & PeerId::kChatTypeMask);
-	AboutValue(
-		peer
+	rpl::combine(
+		AboutValue(peer),
+		Mokagram::Streamer::ActiveValue(Mokagram::Streamer::Field::Id)
 	) | rpl::on_next([=] {
 		label->setLink(
 			kPeerIdLinkIndex,
 			std::make_shared<DraggableUrlClickHandler>(
 				u"internal:~peer_id~:copy:"_q + id,
-				id));
+				peer->isSelf()
+					? DragTextFor(Mokagram::Streamer::Field::Id, id)
+					: id));
 	}, label->lifetime());
 }
 
@@ -1688,7 +1734,16 @@ Section DetailsFiller::makeInfo() {
 			request.menu->addAction(
 				tr::lng_context_copy_link(tr::now),
 				[=] {
-					TextUtilities::SetClipboardText({ url });
+					if (Mokagram::Streamer::Active(
+							Mokagram::Streamer::Field::Link)) {
+						if (!Mokagram::Streamer::SetClipboard(
+								Mokagram::Streamer::Field::Link,
+								url)) {
+							return;
+						}
+					} else {
+						TextUtilities::SetClipboardText({ url });
+					}
 					if (const auto strong = weak.get()) {
 						strong->showToast({
 							.text = {
@@ -1756,6 +1811,12 @@ Section DetailsFiller::makeInfo() {
 			const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request) {
 				if (request.selection.empty()) {
 					const auto callback = [=] {
+						if (user->isSelf()
+							&& Mokagram::Streamer::Active(
+								Mokagram::Streamer::Field::Phone)) {
+							CopyPhoneToClipboard(user);
+							return;
+						}
 						CopyPhoneToClipboard(PhoneOrHiddenValue(user));
 					};
 					request.menu->addAction(
@@ -1796,18 +1857,21 @@ Section DetailsFiller::makeInfo() {
 		usernameLine.subtext->overrideLinkClickHandler(callback);
 		usernameLine.text->setContextMenuHook(lnkHook);
 		usernameLine.subtext->setContextMenuHook(lnkHook);
-		UsernameValue(
-			user,
-			true
+		rpl::combine(
+			UsernameValue(user, true),
+			Mokagram::Streamer::ActiveValue(Mokagram::Streamer::Field::Link)
 		) | rpl::on_next([=, label = usernameLine.text](
-				const TextWithEntities &u) {
+				const TextWithEntities &u,
+				bool) {
 			if (u.text.isEmpty()) {
 				return;
 			}
-			const auto username = u.text.mid(1);
+			const auto username = PrimaryUsername(user);
 			label->setLink(1, std::make_shared<DraggableUrlClickHandler>(
 				UsernameUrl(user, username),
-				user->session().createInternalLinkFull(username)));
+				DragTextFor(
+					Mokagram::Streamer::Field::Link,
+					user->session().createInternalLinkFull(username))));
 		}, usernameLine.text->lifetime());
 
 		const auto qrButton = Ui::CreateChild<Ui::IconButton>(
