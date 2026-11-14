@@ -80,7 +80,14 @@ BalancePill::BalancePill(
 
 	// StaticGram (Android ProfileBalanceView): GRAM and Stars are two
 	// separate pills without the «Balance:» label, both shown once the
-	// user has any sgcard, each opens its own card.
+	// user has any sgcard, each opens its own card. Like Android
+	// sgExpectsBalance, bots and service accounts are not asked.
+	if (user->isBot()
+		|| user->isInaccessible()
+		|| user->isRepliesChat()
+		|| user->isVerifyCodes()) {
+		return;
+	}
 	StaticGram::Money::CardsValue(
 		user
 	) | rpl::on_next([=](const StaticGram::Money::Cards &cards) {
