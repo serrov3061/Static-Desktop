@@ -259,6 +259,87 @@ const auto kPsaAboutPrefix = "cloud_lng_about_psa_";
 	});
 }
 
+constexpr auto kSgComposeOverlay = "sg-compose-overlay";
+
+// StaticGram (mokaGram 11.2026): the history scroll goes under the floating
+// compose card down to the window bottom; this is the part under the card.
+[[nodiscard]] int SgScrollBottomSkip(not_null<QWidget*> scroll) {
+	return scroll->property("mokaBottomSkip").toInt();
+}
+
+[[nodiscard]] QRect SgVisibleScrollGeometry(not_null<QWidget*> scroll) {
+	return scroll->geometry().marginsRemoved(
+		{ 0, 0, 0, SgScrollBottomSkip(scroll) });
+}
+
+[[nodiscard]] Ui::RpWidget *SgComposeOverlay(not_null<QWidget*> parent) {
+	return parent->findChild<Ui::RpWidget*>(
+		kSgComposeOverlay,
+		Qt::FindDirectChildrenOnly);
+}
+
+[[nodiscard]] int SgBubbleRadius(int height) {
+	return std::min(kStaticGramCornerRadius, height / 2);
+}
+
+// The bars shown instead of the field (JOIN, UNMUTE, START, UNBLOCK) are
+// rounded bubbles too: the base button paints only the text and the ripple.
+[[nodiscard]] const style::FlatButton &SgBubbleButtonStyle(
+		const style::FlatButton &st) {
+	static auto cache = base::flat_map<
+		const style::FlatButton*,
+		std::unique_ptr<style::FlatButton>>();
+	auto &result = cache[&st];
+	if (!result) {
+		result = std::make_unique<style::FlatButton>(st);
+		result->bgColor = st::transparent;
+		result->overBgColor = st::transparent;
+	}
+	return *result;
+}
+
+class SgBubbleButton final : public Ui::FlatButton {
+public:
+	SgBubbleButton(
+		QWidget *parent,
+		const QString &text,
+		const style::FlatButton &st)
+	: FlatButton(parent, text, SgBubbleButtonStyle(st))
+	, _bg(st) {
+	}
+
+protected:
+	void paintEvent(QPaintEvent *e) override {
+		{
+			auto p = QPainter(this);
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(isOver() ? _bg.overBgColor : _bg.bgColor);
+			const auto radius = SgBubbleRadius(height());
+			p.drawRoundedRect(rect(), radius, radius);
+		}
+		FlatButton::paintEvent(e);
+	}
+
+	QImage prepareRippleMask() const override {
+		return Ui::RippleAnimation::RoundRectMask(
+			size(),
+			SgBubbleRadius(height()));
+	}
+
+private:
+	const style::FlatButton &_bg;
+
+};
+
+[[nodiscard]] object_ptr<Ui::FlatButton> MakeSgBubbleButton(
+		QWidget *parent,
+		const QString &text,
+		const style::FlatButton &st) {
+	return object_ptr<Ui::FlatButton>::fromRaw(
+		new SgBubbleButton(parent, text, st));
+}
+
 } // namespace
 
 struct HistoryWidget::ListRevealHold final : base::has_weak_ptr {
@@ -311,23 +392,26 @@ HistoryWidget::HistoryWidget(
 , _discardRichDraft(Ui::CreateChild<Ui::IconButton>(
 	this,
 	st::historyDiscardRichDraftButton))
-, _unblock(
+, _unblock(MakeSgBubbleButton(
 	this,
 	tr::lng_unblock_button(tr::now).toUpper(),
-	st::historyUnblock)
-, _botStart(
+	st::historyUnblock))
+, _botStart(MakeSgBubbleButton(
 	this,
 	tr::lng_bot_start(tr::now).toUpper(),
-	st::historyComposeButton)
-, _joinChannel(
+	st::historyComposeButton))
+, _joinChannel(MakeSgBubbleButton(
 	this,
 	tr::lng_profile_join_channel(tr::now).toUpper(),
-	st::historyComposeButton)
-, _muteUnmute(
+	st::historyComposeButton))
+, _muteUnmute(MakeSgBubbleButton(
 	this,
 	tr::lng_channel_mute(tr::now).toUpper(),
-	st::historyComposeButton)
-, _reportMessages(this, QString(), st::historyComposeButton)
+	st::historyComposeButton))
+, _reportMessages(MakeSgBubbleButton(
+	this,
+	QString(),
+	st::historyComposeButton))
 , _attachToggle(this, st::historyAttach)
 , _tabbedSelectorToggle(this, st::historyAttachEmoji)
 , _botKeyboardShow(this, st::historyBotKeyboardShow)
@@ -385,6 +469,65 @@ HistoryWidget::HistoryWidget(
 	}))
 , _topShadow(this) {
 	setAcceptDrops(true);
+
+	// StaticGram (mokaGram 11.2026): the compose card is painted by a layer
+	// over the history, so the messages are seen around the floating card
+	// and fade into the wallpaper under it.
+	{
+		const auto overlay = Ui::CreateChild<Ui::RpWidget>(this);
+		overlay->setObjectName(kSgComposeOverlay);
+		overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+		overlay->stackUnder(_send.get());
+		_fieldBarCancel->stackUnder(_send.get());
+		overlay->paintRequest() | rpl::on_next([=](QRect clip) {
+			if (_list && SgScrollBottomSkip(_scroll.data()) > 0) {
+				const auto ratio = style::DevicePixelRatio();
+				auto image = QImage(
+					overlay->size() * ratio,
+					QImage::Format_ARGB32_Premultiplied);
+				image.setDevicePixelRatio(ratio);
+				image.fill(Qt::transparent);
+				{
+					auto q = QPainter(&image);
+					const auto content = controller->content();
+					const auto fromy = content->backgroundFromY();
+					q.translate(-overlay->x(), -overlay->y() + fromy);
+					Window::SectionWidget::PaintBackground(
+						q,
+						controller->currentChatTheme(),
+						QSize(width(), content->height()),
+						overlay->geometry().translated(0, -fromy),
+						controller->isGifPausedAtLeastFor(
+							Window::GifPauseReason::Any));
+					q.resetTransform();
+					q.setCompositionMode(
+						QPainter::CompositionMode_DestinationIn);
+					auto mask = QLinearGradient(0, 0, 0, overlay->height());
+					mask.setStops({
+						{ 0., QColor(0, 0, 0, 0) },
+						{ 1., QColor(0, 0, 0, 255) },
+					});
+					q.fillRect(overlay->rect(), mask);
+				}
+				QPainter(overlay).drawImage(0, 0, image);
+			}
+			if (!_list || isSearching() || _showAnimation) {
+				return;
+			}
+			const auto restrictionHidden = fieldOrDisabledShown()
+				|| isRecording();
+			if (!restrictionHidden
+				&& !replyTo()
+				&& !readyToForward()
+				&& !_kbShown
+				&& !_suggestOptions) {
+				return;
+			}
+			Painter p(overlay);
+			p.translate(-overlay->pos());
+			drawField(p, clip.translated(overlay->pos()));
+		}, overlay->lifetime());
+	}
 	setVisualTabOrder(true);
 
 	// The controls inside these are created in an order of their own - the
@@ -2331,6 +2474,10 @@ void HistoryWidget::setupStaticGramCorners() {
 			} else if (compose && isRecording()) {
 				// The record button circle may cover the corner.
 				return;
+			} else if (compose && SgScrollBottomSkip(_scroll.data()) > 0) {
+				// The history goes under the floating card, which is
+				// painted rounded by itself.
+				return;
 			}
 			const auto size = float64(kStaticGramCornerRadius);
 			paintStaticGramCorner(
@@ -2350,7 +2497,7 @@ void HistoryWidget::updateStaticGramCorners() {
 	}
 	const auto size = kStaticGramCornerRadius;
 	const auto &floating = st::historyComposeFloat;
-	const auto scroll = _scroll->geometry();
+	const auto scroll = SgVisibleScrollGeometry(_scroll.data());
 	const auto composeTop = scroll.y() + scroll.height();
 	const auto composeBottom = height() - floating.bottom();
 	const auto composeLeft = floating.left();
@@ -3094,8 +3241,8 @@ void HistoryWidget::setupGiftToChannelButton() {
 		_muteUnmute.data(),
 		st::historyGiftToChannel);
 	_giftToChannel->setAccessibleName(tr::lng_gift_channel_title(tr::now));
-	widthValue() | rpl::on_next([=](int width) {
-		_giftToChannel->moveToRight(0, 0, width);
+	widthValue() | rpl::on_next([=](int) {
+		_giftToChannel->moveToRight(0, 0);
 	}, _giftToChannel->lifetime());
 	_giftToChannel->setClickedCallback([=] {
 		Ui::ShowStarGiftBox(controller(), _peer);
@@ -3122,8 +3269,8 @@ void HistoryWidget::setupDirectMessageButton() {
 		_muteUnmute.data(),
 		st::historyDirectMessage);
 		_directMessage->setAccessibleName(tr::lng_profile_direct_messages(tr::now));
-	widthValue() | rpl::on_next([=](int width) {
-		_directMessage->moveToLeft(0, 0, width);
+	widthValue() | rpl::on_next([=](int) {
+		_directMessage->moveToLeft(0, 0);
 	}, _directMessage->lifetime());
 	_directMessage->setClickedCallback([=] {
 		if (const auto channel = _peer ? _peer->asChannel() : nullptr) {
@@ -6218,7 +6365,8 @@ void HistoryWidget::sendTextWithTags(
 				&& _historyInited
 				&& _history->loadedAtBottom()
 				&& _scroll->scrollTop() >= _scroll->scrollTopMax()) {
-				wasScrollBottom = _scroll->y() + _scroll->height();
+				wasScrollBottom = SgVisibleScrollGeometry(
+					_scroll.data()).bottom() + 1;
 			}
 			controller()->sendingAnimation().appendSending(std::move(*from));
 		}
@@ -6253,7 +6401,9 @@ void HistoryWidget::sendTextWithTags(
 			? Data::HistoryUpdate::Flag::ScheduledSent
 			: Data::HistoryUpdate::Flag::MessageSent));
 	if (wasScrollBottom) {
-		const auto lift = _scroll->y() + _scroll->height() - *wasScrollBottom;
+		const auto lift = SgVisibleScrollGeometry(_scroll.data()).bottom()
+			+ 1
+			- *wasScrollBottom;
 		const auto item = session().data().message(
 			_history->peer,
 			nextLocalMessageId);
@@ -7020,7 +7170,9 @@ bool HistoryWidget::floatPlayerHandleWheelEvent(QEvent *e) {
 }
 
 QRect HistoryWidget::floatPlayerAvailableRect() {
-	return _peer ? mapToGlobal(_scroll->geometry()) : mapToGlobal(rect());
+	return _peer
+		? mapToGlobal(SgVisibleScrollGeometry(_scroll.data()))
+		: mapToGlobal(rect());
 }
 
 bool HistoryWidget::readyToForward() const {
@@ -7886,6 +8038,12 @@ void HistoryWidget::moveFieldControls() {
 	if (_sendRestriction) {
 		_sendRestriction->setGeometry(fullWidthButtonRect);
 	}
+	if (_giftToChannel) {
+		_giftToChannel->moveToRight(0, 0);
+	}
+	if (_directMessage) {
+		_directMessage->moveToLeft(0, 0);
+	}
 }
 
 void HistoryWidget::updateFieldSize() {
@@ -8561,10 +8719,12 @@ void HistoryWidget::updateControlsGeometry() {
 	if (_scroll->y() != scrollAreaTop || _scroll->x() != tabsLeftSkip) {
 		_scroll->moveToLeft(tabsLeftSkip, scrollAreaTop);
 		if (_autocomplete) {
-			_autocomplete->setBoundings(_scroll->geometry());
+			_autocomplete->setBoundings(
+				SgVisibleScrollGeometry(_scroll.data()));
 		}
 		if (_supportAutocomplete) {
-			_supportAutocomplete->setBoundings(_scroll->geometry());
+			_supportAutocomplete->setBoundings(
+				SgVisibleScrollGeometry(_scroll.data()));
 		}
 	}
 
@@ -8841,6 +9001,7 @@ void HistoryWidget::updateHistoryGeometry(
 	if (_businessBotStatus) {
 		newScrollHeight -= _businessBotStatus->bar().height();
 	}
+	const auto sgHeightAboveBottom = newScrollHeight;
 	if (isChoosingTheme()) {
 		newScrollHeight -= _chooseTheme->height();
 	} else if (!editingMessage()
@@ -8873,6 +9034,35 @@ void HistoryWidget::updateHistoryGeometry(
 	if (newScrollHeight <= 0) {
 		return;
 	}
+	// StaticGram (mokaGram 11.2026): the history goes under the floating
+	// compose card down to the window bottom and gets the same bottom
+	// margin inside, so the messages stay in place.
+	const auto sgBottomZone = sgHeightAboveBottom - newScrollHeight;
+	const auto sgButtons = !editingMessage()
+		&& (isBlocked()
+			|| isBotStart()
+			|| isJoinChannel()
+			|| isMuteUnmute()
+			|| isReportMessages());
+	const auto sgField = (editingMessage() || _canSendMessages);
+	const auto sgFloat = !isChoosingTheme()
+		&& !isSearching()
+		&& !_kbShown
+		&& (sgButtons || sgField);
+	const auto sgBottomSkip = sgFloat ? sgBottomZone : 0;
+	const auto sgSkipChanged
+		= (SgScrollBottomSkip(_scroll.data()) != sgBottomSkip);
+	_scroll->setProperty("mokaBottomSkip", sgBottomSkip);
+	if (const auto overlay = SgComposeOverlay(this)) {
+		overlay->setGeometry(
+			0,
+			height() - sgBottomZone,
+			width(),
+			sgBottomZone);
+		overlay->show();
+	}
+	const auto visibleScrollHeight = newScrollHeight;
+	newScrollHeight += sgBottomSkip;
 	const auto wasScrollTop = _scroll->scrollTop();
 	const auto wasAtBottom = (wasScrollTop >= _scroll->scrollTopMax());
 	const auto needResize = (_scroll->width() != newScrollWidth)
@@ -8886,19 +9076,21 @@ void HistoryWidget::updateHistoryGeometry(
 			visibleAreaUpdated();
 		}
 	}
-	if (needResize || initial) {
+	if (needResize || initial || sgSkipChanged) {
 		if (_autocomplete) {
-			_autocomplete->setBoundings(_scroll->geometry());
+			_autocomplete->setBoundings(
+				SgVisibleScrollGeometry(_scroll.data()));
 		}
 		if (_supportAutocomplete) {
-			_supportAutocomplete->setBoundings(_scroll->geometry());
+			_supportAutocomplete->setBoundings(
+				SgVisibleScrollGeometry(_scroll.data()));
 		}
 		_cornerButtons.updatePositions();
 		controller()->floatPlayerAreaUpdated();
 	}
 	if (_subsectionTabs) {
 		const auto tabsBottomSkip = _subsectionTabs->bottomSkip();
-		const auto scrollBottom = _scroll->y() + newScrollHeight;
+		const auto scrollBottom = _scroll->y() + visibleScrollHeight;
 		const auto areaHeight = scrollBottom
 			+ tabsBottomSkip
 			- subsectionTabsTop;
@@ -11618,7 +11810,8 @@ void HistoryWidget::updateField() {
 		return;
 	}
 	_repaintFieldScheduled = true;
-	const auto fieldAreaTop = _scroll->y() + _scroll->height();
+	const auto fieldAreaTop = SgVisibleScrollGeometry(
+		_scroll.data()).bottom() + 1;
 	rtlupdate(0, fieldAreaTop, width(), height() - fieldAreaTop);
 }
 
@@ -11640,14 +11833,26 @@ void HistoryWidget::drawField(Painter &p, const QRect &rect) {
 	}
 	p.setInactive(
 		controller()->isGifPausedAtLeastFor(Window::GifPauseReason::Any));
-	// Mokagram: верхние углы панели ввода скруглены.
-	// StaticGram: the floating compose card, a plain rectangle inside the
-	// side margins; its corners are rounded by the corner overlays with
-	// the same radius as the top card. The content below is painted in
+	// StaticGram: the floating compose card inside the side margins, a
+	// rounded bubble (mokaGram 11.2026); with the bot keyboard right below
+	// only its top corners are rounded. The content below is painted in
 	// the card coordinates.
 	const auto composeWidth = composeAreaWidth();
 	p.translate(st::historyComposeFloat.left(), 0);
-	p.fillRect(QRect(0, backy, composeWidth, backh), st::historyReplyBg);
+	{
+		const auto radius = SgBubbleRadius(backh);
+		const auto card = QRect(0, backy, composeWidth, backh);
+		auto hq = PainterHighQualityEnabler(p);
+		p.save();
+		p.setClipRect(card);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::historyReplyBg);
+		p.drawRoundedRect(
+			_kbShown ? card.marginsAdded({ 0, 0, 0, radius }) : card,
+			radius,
+			radius);
+		p.restore();
+	}
 
 	const auto media = (!_previewDrawPreview && drawMsgText)
 		? drawMsgText->media()
@@ -11929,19 +12134,9 @@ void HistoryWidget::paintEvent(QPaintEvent *e) {
 		e->rect());
 
 	Painter p(this);
-	const auto clip = e->rect();
 	if (_list) {
-		const auto restrictionHidden = fieldOrDisabledShown()
-			|| isRecording();
-		if (restrictionHidden
-			|| replyTo()
-			|| readyToForward()
-			|| _kbShown
-			|| _suggestOptions) {
-			if (!isSearching()) {
-				drawField(p, clip);
-			}
-		}
+		// StaticGram: the compose card is painted by the kSgComposeOverlay
+		// layer over the history, it is repainted together with this area.
 	} else {
 		const auto w = 0
 			+ st::msgServiceFont->width(tr::lng_willbe_history(tr::now))

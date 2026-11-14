@@ -4855,6 +4855,9 @@ void HistoryInner::updateSize() {
 	if (aboutBelowHistory) {
 		accumulate_max(newHistoryMarginBottom, _aboutView->height);
 	}
+	// StaticGram (mokaGram 11.2026): the history goes under the floating
+	// compose card, keep its bottom above the card.
+	newHistoryMarginBottom += _scroll->property("mokaBottomSkip").toInt();
 	auto newHistoryMarginTop = std::max(
 		visibleHeight - itemsHeight - newHistoryMarginBottom,
 		0);
