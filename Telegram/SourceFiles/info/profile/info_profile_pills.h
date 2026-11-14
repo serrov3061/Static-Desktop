@@ -42,7 +42,8 @@ private:
 	void layout();
 
 	const not_null<Ui::RpWidget*> _parent;
-	const std::unique_ptr<BalancePill> _balance;
+	const std::unique_ptr<BalancePill> _balance; // GRAM.
+	const std::unique_ptr<BalancePill> _stars;
 	const std::unique_ptr<MusicButton> _music;
 	rpl::variable<int> _reserve = 0;
 	int _outerWidth = 0;

@@ -7,16 +7,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_balance_pill.h"
 
-#include "data/data_changes.h"
 #include "data/data_user.h"
-#include "data/data_user_wallet_card.h"
 #include "info/channel_statistics/earn/earn_icons.h"
 #include "lang/lang_keys.h"
-#include "main/main_session.h"
+#include "staticgram/sg_money_api.h"
 #include "ui/controls/ton_common.h"
+#include "ui/effects/credits_graphics.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
-#include "wallet/wallet_fiat.h"
 
 #include "styles/style_info_profile_top_bar.h"
 
@@ -33,13 +31,22 @@ namespace {
 		+ padding.right();
 }
 
-[[nodiscard]] Wallet::AmountParts BalanceParts(int64 balance) {
-	return {
-		.whole = Ui::FormatTonAmount(balance).wholeString,
-		.fraction = (balance % Ui::kNanosInOne)
-			? Wallet::GramMinorPart(balance)
-			: QString(),
-	};
+// StaticGram: the amounts of the card sheet (big ones abbreviated), the
+// GRAM fraction is drawn with the smaller font.
+[[nodiscard]] Wallet::AmountParts BalanceParts(
+		StaticGram::Money::Kind kind,
+		int64 balance) {
+	const auto text = StaticGram::Money::FormatAmount(kind, balance);
+	if (kind != StaticGram::Money::Kind::Gram) {
+		return { .whole = text };
+	}
+	const auto index = text.indexOf(Ui::TonAmountSeparator());
+	return (index < 0)
+		? Wallet::AmountParts{ .whole = text }
+		: Wallet::AmountParts{
+			.whole = text.mid(0, index),
+			.fraction = text.mid(index),
+		};
 }
 
 } // namespace
@@ -47,8 +54,10 @@ namespace {
 BalancePill::BalancePill(
 	QWidget *parent,
 	not_null<UserData*> user,
-	rpl::producer<std::optional<QColor>> edgeColor)
+	rpl::producer<std::optional<QColor>> edgeColor,
+	StaticGram::Money::Kind kind)
 : AbstractButton(parent)
+, _kind(kind)
 , _colors(ComputePillColors(std::nullopt))
 , _baseline(PillTextBaseline())
 , _arrowTop(PillArrowTop()) {
@@ -69,18 +78,22 @@ BalancePill::BalancePill(
 		refreshColors();
 	}, lifetime());
 
-	rpl::combine(
-		tr::lng_wallet_profile_balance(),
-		user->session().changes().peerFlagsValue(
-			user,
-			Data::PeerUpdate::Flag::WalletCard
-		) | rpl::map([=] {
-			const auto card = user->walletCard();
-			return card ? card->balance : int64();
-		}) | rpl::distinct_until_changed()
-	) | rpl::on_next([=](const QString &label, int64 balance) {
-		setContent(label, balance);
+	// StaticGram (Android ProfileBalanceView): GRAM and Stars are two
+	// separate pills without the «Balance:» label, both shown once the
+	// user has any sgcard, each opens its own card.
+	StaticGram::Money::CardsValue(
+		user
+	) | rpl::on_next([=](const StaticGram::Money::Cards &cards) {
+		const auto card = cards.find(_kind);
+		setContent(
+			QString(),
+			card ? card->balance : int64(),
+			cards.loaded && !cards.list.empty());
 	}, lifetime());
+}
+
+StaticGram::Money::Kind BalancePill::kind() const {
+	return _kind;
 }
 
 void BalancePill::setOpacity(float64 opacity) {
@@ -129,15 +142,18 @@ void BalancePill::paintContentAlone(QPainter &p) const {
 	p.setOpacity(was);
 }
 
-void BalancePill::setContent(const QString &label, int64 balance) {
-	if (balance <= 0) {
+void BalancePill::setContent(
+		const QString &label,
+		int64 balance,
+		bool shown) {
+	if (!shown) {
 		if (!isHidden()) {
 			++_appearanceRevision;
 		}
 		hide();
 		return;
 	}
-	const auto parts = BalanceParts(balance);
+	const auto parts = BalanceParts(_kind, std::max(balance, int64()));
 	if (isHidden()
 		|| _label != label
 		|| _amount.parts().whole != parts.whole
@@ -169,9 +185,11 @@ void BalancePill::refreshColors() {
 			_colors.primary,
 			st::infoProfileBalancePillColoredIconTint)
 		: st::currencyFg->c;
-	_icon = Ui::Earn::IconCurrencyTwoTone(
-		st::infoProfileBalancePillIconSize,
-		tint);
+	_icon = (_kind == StaticGram::Money::Kind::Stars)
+		? Ui::GenerateStars(st::infoProfileBalancePillIconSize, 1)
+		: Ui::Earn::IconCurrencyTwoTone(
+			st::infoProfileBalancePillIconSize,
+			tint);
 	const auto &font = st::infoProfileBalancePillAmountFont;
 	const auto ratio = style::DevicePixelRatio();
 	const auto top = _baseline
@@ -254,7 +272,11 @@ QString BalancePill::accessibilityName() {
 	return tr::lng_wallet_send_balance(
 		tr::now,
 		lt_amount,
-		parts.whole + parts.fraction);
+		parts.whole
+			+ parts.fraction
+			+ ((_kind == StaticGram::Money::Kind::Stars)
+				? u" Stars"_q
+				: u" GRAM"_q));
 }
 
 } // namespace Info::Profile
