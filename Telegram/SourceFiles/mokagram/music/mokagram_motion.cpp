@@ -29,9 +29,7 @@
 #include <QtNetwork/QTcpServer>
 #include <QtNetwork/QTcpSocket>
 
-namespace Media::Audio {
-void SetFilterPreset(int preset);
-} // namespace Media::Audio
+#include "media/audio/media_audio.h"
 
 namespace Mokagram::Music {
 namespace {
@@ -582,7 +580,6 @@ private:
 } // namespace
 
 namespace {
-rpl::lifetime AudioFilterLifetime;
 } // namespace
 
 namespace {
@@ -635,6 +632,8 @@ void RegisterSoundCloudSettings() {
 			Ui::Toast::Show(QString::fromUtf8(Lang::Tr("SoundCloud отключён.")));
 		} });
 }
+
+rpl::lifetime AudioFilterLifetime;
 
 void RegisterMotionSettings() {
 	const auto add = [](Settings::Entry entry) {

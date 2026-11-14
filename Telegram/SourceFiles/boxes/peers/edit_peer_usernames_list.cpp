@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peers/edit_peer_usernames_list.h"
 
+#include "mokagram/streamer/mokagram_streamer.h"
+
 #include "api/api_filter_updates.h"
 #include "api/api_user_names.h"
 #include "apiwrap.h"

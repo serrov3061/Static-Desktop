@@ -5,6 +5,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mokagram/music/mokagram_island.h"
+#include "mokagram/effects/mokagram_black_hole.h"
 
 #include "mokagram/music/mokagram_island_glyphs.h"
 #include "mokagram/music/mokagram_music_library.h"
@@ -656,7 +657,10 @@ void Island::relayout() {
 	applyGeometry();
 	if (_shown || _alpha.value() > 0.) {
 		show();
-		raise();
+		// Чёрная дыра растёт из островка и лежит над ним, пока идёт.
+		if (!Mokagram::BlackHole::Running()) {
+			raise();
+		}
 	}
 }
 

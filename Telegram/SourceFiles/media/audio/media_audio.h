@@ -41,6 +41,8 @@ class Instance;
 
 // Thread: Main.
 void Start(not_null<Instance*> instance);
+// mokaGram player filter preset (OpenAL EFX), 0 is off.
+void SetFilterPreset(int preset);
 void Finish(not_null<Instance*> instance);
 
 // Thread: Main. Locks: AudioMutex.

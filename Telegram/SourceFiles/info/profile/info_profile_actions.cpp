@@ -20,9 +20,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_key_modifiers.h"
 #include "base/timer_rpl.h"
 #include "base/unixtime.h"
-#include "mokagram/misc/mokagram_misc.h"
-#include "mokagram/misc/mokagram_datereg.h"
-#include "mokagram/notes/mokagram_notes.h"
 #include "mokagram/streamer/mokagram_streamer.h"
 #include "boxes/choose_filter_box.h"
 #include "boxes/peer_list_box.h"
@@ -129,7 +126,6 @@ namespace {
 
 constexpr auto kDay = Data::WorkingInterval::kDay;
 constexpr auto kPeerIdLinkIndex = uint16(1);
-constexpr auto kBubbleRadius = 26.;
 
 // Режим стримера: настоящий ник берём из данных, а не из показанного текста.
 [[nodiscard]] QString PrimaryUsername(not_null<PeerData*> peer) {
@@ -273,7 +269,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 		AboutValue(peer),
 		Mokagram::Streamer::ActiveValue(Mokagram::Streamer::Field::Id)
 	) | rpl::map([=](TextWithEntities &&value, bool hideId) {
-		if (false && ShowPeerIdBelowAbout.value()) {
+		if (ShowPeerIdBelowAbout.value()) {
 			using namespace Ui::Text;
 			if (!value.empty()) {
 				value.append("\n\n");
@@ -319,9 +315,7 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 void SetupAboutPeerIdDrag(
 		not_null<Ui::FlatLabel*> label,
 		not_null<PeerData*> peer) {
-	// Mokagram: ID вынесен в отдельную строку, а эта ссылка перехватывала
-	// первое упоминание (@юзернейм) в тексте о себе.
-	if (true || !ShowPeerIdBelowAbout.value()) {
+	if (!ShowPeerIdBelowAbout.value()) {
 		return;
 	}
 	const auto id = QString::number(peer->id.value & PeerId::kChatTypeMask);

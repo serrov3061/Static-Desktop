@@ -84,6 +84,8 @@ PRIVATE
     mokagram/appearance/mokagram_appearance.h
     mokagram/avatar/mokagram_avatar_shape.cpp
     mokagram/avatar/mokagram_avatar_shape.h
+    mokagram/effects/mokagram_black_hole.cpp
+    mokagram/effects/mokagram_black_hole.h
     mokagram/effects/mokagram_effects.cpp
     mokagram/effects/mokagram_effects.h
     mokagram/lang/mokagram_lang.cpp
@@ -106,6 +108,10 @@ PRIVATE
     mokagram/music/mokagram_soundcloud.h
     mokagram/music/mokagram_soundcloud_login.cpp
     mokagram/music/mokagram_soundcloud_login.h
+    mokagram/perf/mokagram_perf.cpp
+    mokagram/perf/mokagram_perf.h
+    mokagram/quote/mokagram_quote.cpp
+    mokagram/quote/mokagram_quote.h
     mokagram/plugins/mokagram_plugin_api.cpp
     mokagram/plugins/mokagram_plugin_api.h
     mokagram/plugins/mokagram_plugin_install.cpp
@@ -2477,6 +2483,8 @@ PRIVATE
     staticgram/sg_lang.h
     staticgram/sg_money.cpp
     staticgram/sg_money.h
+    staticgram/sg_moka_features.cpp
+    staticgram/sg_moka_features.h
     staticgram/sg_money_api.cpp
     staticgram/sg_money_api.h
     staticgram/sg_money_cards.cpp

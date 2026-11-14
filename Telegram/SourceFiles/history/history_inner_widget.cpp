@@ -138,6 +138,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_menu_icons.h"
 #include "mokagram/streamer/mokagram_streamer.h"
+#include "mokagram/effects/mokagram_black_hole.h"
+#include "mokagram/quote/mokagram_quote.h"
 
 #include <QtGui/QClipboard>
 #include <QtWidgets/QApplication>
@@ -3495,6 +3497,23 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				HistoryView::CopyPostLink(controller, itemId, HistoryView::Context::History);
 			}, &st::menuIconLink);
 		}
+		// mokaGram: a screenshot of the selected messages (or this one).
+		if (item || isUponSelected > 0) {
+			_menu->addAction(tr::lng_sg_screenshot_messages(tr::now), [=] {
+				auto ids = std::vector<FullMsgId>();
+				if (isUponSelected > 0) {
+					for (const auto selected : _selected) {
+						ids.push_back(selected->fullId());
+					}
+				}
+				if (ids.empty() && itemId) {
+					ids.push_back(itemId);
+				}
+				if (!ids.empty()) {
+					Mokagram::Quote::ShowQuoteBox(_controller, std::move(ids));
+				}
+			}, &st::menuIconPhoto);
+		}
 		if (isUponSelected > 1) {
 			if (selectedState.count > 0 && selectedState.canForwardCount == selectedState.count) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
@@ -3785,6 +3804,23 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			_menu->addAction(item->history()->peer->isMegagroup() ? tr::lng_context_copy_message_link(tr::now) : tr::lng_context_copy_post_link(tr::now), [=] {
 				HistoryView::CopyPostLink(controller, itemId, HistoryView::Context::History);
 			}, &st::menuIconLink);
+		}
+		// mokaGram: a screenshot of the selected messages (or this one).
+		if (item || isUponSelected > 0) {
+			_menu->addAction(tr::lng_sg_screenshot_messages(tr::now), [=] {
+				auto ids = std::vector<FullMsgId>();
+				if (isUponSelected > 0) {
+					for (const auto selected : _selected) {
+						ids.push_back(selected->fullId());
+					}
+				}
+				if (ids.empty() && itemId) {
+					ids.push_back(itemId);
+				}
+				if (!ids.empty()) {
+					Mokagram::Quote::ShowQuoteBox(_controller, std::move(ids));
+				}
+			}, &st::menuIconPhoto);
 		}
 		if (sponsored) {
 			const auto hasAbout = ranges::any_of(
@@ -4982,7 +5018,9 @@ void HistoryInner::setupThanosEffect() {
 
 	session().data().viewAboutToBeRemoved(
 	) | rpl::on_next([=](Data::ViewRemoval removal) {
-		if (removal.reason == Data::ViewRemovalReason::Removed) {
+		// mokaGram: the black hole paints the cleared messages itself.
+		if (removal.reason == Data::ViewRemovalReason::Removed
+			&& !Mokagram::BlackHole::Running()) {
 			_thanosController->captureOnRemoval(removal.view->data());
 		}
 	}, lifetime());

@@ -368,12 +368,18 @@ void ShowMenu(
 		const QString &copyButton,
 		const QString &text,
 		const style::icon *copyIcon = nullptr,
-		Fn<void(not_null<Ui::PopupMenu*>)> extend = nullptr) {
+		Fn<void(not_null<Ui::PopupMenu*>)> extend = nullptr,
+		Fn<void(const QString &)> copyAction = nullptr) {
 	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
 		parent,
 		extend ? st::popupMenuWithIcons : st::defaultPopupMenu);
 
 	menu->addAction(copyButton, [=] {
+		if (copyAction) {
+			// Streamer mode: the shown text is masked, the hook copies.
+			copyAction(text);
+			return;
+		}
 		QGuiApplication::clipboard()->setText(text);
 	}, copyIcon);
 	if (extend) {
@@ -407,7 +413,8 @@ not_null<Ui::SettingsButton*> AddRow(
 		IconDescriptor &&descriptor,
 		bool markedValue = false,
 		Fn<void(not_null<Ui::PopupMenu*>)> menuExtender = nullptr,
-		const style::icon *copyIcon = nullptr) {
+		const style::icon *copyIcon = nullptr,
+		Fn<void(const QString &)> copyAction = nullptr) {
 	const auto wrap = markedValue
 		? AddButtonWithIcon(
 			container,
@@ -438,7 +445,13 @@ not_null<Ui::SettingsButton*> AddRow(
 		if (button == Qt::LeftButton) {
 			edit();
 		} else if (!forcopy->isEmpty()) {
-			ShowMenu(wrap, copyButton, *forcopy, copyIcon, menuExtender);
+			ShowMenu(
+				wrap,
+				copyButton,
+				*forcopy,
+				copyIcon,
+				menuExtender,
+				copyAction);
 		}
 	}, wrap->lifetime());
 

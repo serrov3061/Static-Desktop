@@ -84,6 +84,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_info.h"
 #include "styles/style_window_main_menu.h"
 #include "mokagram/streamer/mokagram_streamer.h"
+#include "mokagram/music/mokagram_music_ui.h"
 
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
@@ -795,6 +796,13 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconSavedMessages }
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
+		});
+		// mokaGram music (player, lyrics, SoundCloud), 14.11.2026.
+		addAction(
+			tr::lng_sg_music_title(),
+			{ &st::menuIconSoundOn }
+		)->setClickedCallback([=] {
+			Mokagram::Music::ShowMusicBox(controller);
 		});
 		// StaticGram: «Money» opens our GRAM / Stars panel, the upstream
 		// client-side wallet stays off (walletAvailable() is false).

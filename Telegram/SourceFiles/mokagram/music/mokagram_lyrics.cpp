@@ -238,7 +238,7 @@ void Request(
 		return;
 	}
 	auto request = QNetworkRequest(url);
-	request.setRawHeader("User-Agent", "mokaGram (https://github.com/ecronx/mokagram)");
+	request.setRawHeader("User-Agent", "StaticGram Desktop (mokaGram music)");
 	request.setTransferTimeout(15000);
 	const auto reply = Net().get(request);
 	LimitReply(reply, kMaxTextBytes);

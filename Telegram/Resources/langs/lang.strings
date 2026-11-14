@@ -9241,6 +9241,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_frame_opt_silver" = "Silver";
 "lng_sg_frame_opt_sky" = "Sky";
 "lng_sg_banner_title" = "Profile banner";
+"lng_sg_streamer_title" = "Streamer mode";
+"lng_sg_performance_title" = "Performance";
+"lng_sg_music_title" = "Music";
+"lng_sg_screenshot_messages" = "Screenshot of messages";
 "lng_sg_banner_choose" = "Choose banner";
 "lng_sg_banner_remove" = "Remove banner";
 "lng_sg_banner_info" = "A picture or a short video up to 15 seconds behind your profile header. Available with an exteraStatic badge. Everyone using exteraStatic sees it.";

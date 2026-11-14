@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/edit_privacy_box.h"
 
+#include "mokagram/streamer/mokagram_streamer.h"
+
 #include "api/api_global_privacy.h"
 #include "apiwrap.h"
 #include "boxes/filters/edit_filter_chats_list.h"

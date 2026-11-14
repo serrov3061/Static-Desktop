@@ -3,6 +3,7 @@
 // of MOKAGRAM_NOTICE.md (section 7(b)): keep this notice when copying.
 // mokagram-id: 7b8dec14
 #include "mokagram/music/mokagram_music_ui.h"
+#include "mokagram/perf/mokagram_perf.h"
 #include "mokagram/ui/mokagram_box_parts.h"
 #include "mokagram/lang/mokagram_lang.h"
 #include "ui/widgets/rp_window.h"
@@ -126,10 +127,9 @@
 #include <array>
 #include <cmath>
 
-// StaticGram: mokaGram's @mokagent bot ("listen together" rooms) and the
-// resource-saving module are not part of our client. The bot is never asked
-// (every request fails at once, the menu entries are hidden), and "the user
-// is looking" means the application is active, as in mokaGram.
+// StaticGram: mokaGram's @mokagent bot ("listen together" rooms) is not
+// part of our client. The bot is never asked (every request fails at once,
+// the menu entries are hidden).
 namespace Mokagram::Bot {
 
 struct Result {
@@ -146,14 +146,6 @@ inline void Ask(const QString &, Fn<void(Results)>, Fn<void()> fail = nullptr) {
 }
 
 } // namespace Mokagram::Bot
-
-namespace Mokagram::Perf {
-
-[[nodiscard]] inline bool UserIsLooking() {
-	return QGuiApplication::applicationState() == Qt::ApplicationActive;
-}
-
-} // namespace Mokagram::Perf
 
 namespace Mokagram::Music {
 namespace {

@@ -733,6 +733,16 @@ private:
 		FieldHistoryAction fieldHistoryAction = FieldHistoryAction::Clear);
 	[[nodiscard]] int fieldHeight() const;
 	[[nodiscard]] bool fieldOrDisabledShown() const;
+	// StaticGram: the floating compose card rect (empty without the field).
+	[[nodiscard]] QRect sgComposeBubble() const;
+
+public:
+	// mokaGram: clear the history with a black hole, calls clear() itself.
+	bool sgClearWithBlackHole(
+		not_null<PeerData*> peer,
+		Fn<void()> clear);
+
+private:
 	[[nodiscard]] bool fieldHasSendText() const;
 	[[nodiscard]] bool hasSendableContent() const;
 	[[nodiscard]] bool hideExtraButtons() const;

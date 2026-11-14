@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peers/edit_peer_invite_link.h"
 
+#include "mokagram/streamer/mokagram_streamer.h"
+
 #include "api/api_invite_links.h"
 #include "apiwrap.h"
 #include "base/unixtime.h"
