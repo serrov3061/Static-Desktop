@@ -2540,9 +2540,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sure_delete_selected_days#other" = "{count} selected days";
 
 "lng_message_empty" = "Empty Message";
-"lng_message_unsupported" = "This message is not supported by your version of Telegram. Please update to the latest version in Settings > Advanced, or install it from {link}. If you are already using the latest version, this message might depend on a feature that is not yet implemented.";
+"lng_message_unsupported" = "This message is not supported by your version of StaticGram. Please update StaticGram to the latest version in Settings > Advanced, or install it from {link}. If you are already using the latest version, this message might depend on a feature that is not yet implemented.";
 "lng_unsupported_message_title" = "Unsupported Message";
-"lng_unsupported_message_text" = "Update Telegram to view this message";
+"lng_unsupported_message_text" = "Update StaticGram to view this message";
 "lng_unsupported_message_update" = "Update";
 "lng_unsupported_block_title" = "Unsupported Block";
 "lng_unsupported_block_text" = "Update Telegram to view this part of the message";
@@ -8603,6 +8603,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_frozen_subtitle3" = "Appeal Before Deactivation";
 "lng_frozen_text3" = "Appeal via {link} before {date}, or your account will be deleted.";
 "lng_frozen_appeal_button" = "Submit an Appeal";
+"lng_sg_anonymous_number" = "Anonymous Number";
+"lng_sg_collectible_phone_no_price" = "This phone number was bought on **Fragment** on {date}";
+"lng_sg_collectible_username_no_price" = "This username was bought on **Fragment** on {date}";
+"lng_sg_freeze_reason_title" = "Reason for the freeze";
 
 "lng_age_verify_title" = "Age Verification";
 "lng_age_verify_mobile" = "Please open this media in the official Telegram app for Android or iOS to verify your age.";
@@ -9290,6 +9294,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_money_sent" = "Sent {amount} to {user}";
 "lng_sg_money_fee" = "Fee: {amount} GRAM";
 "lng_sg_money_help" = "GRAM and Stars arrive instantly. The transfer and your comment will appear in the chat with the recipient.";
+"lng_sg_num_million" = "M";
+"lng_sg_num_billion" = "B";
+"lng_sg_num_trillion" = "T";
+"lng_sg_num_quadrillion" = "Qa";
+"lng_sg_num_quintillion" = "Qi";
 "lng_sg_money_not_self" = "You can't send money to yourself.";
 "lng_sg_money_owns" = "{user} has {amount}.";
 "lng_sg_money_owns_no_gram" = "{user} has no GRAM yet.";

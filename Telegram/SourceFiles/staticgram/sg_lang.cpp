@@ -26,6 +26,21 @@ struct Phrase {
 // not have them (the same texts as the Android values-ru).
 constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_badge_title", "exteraStatic бейдж" },
+	// Members list (group window and side panel) when the cloud pack
+	// has not given these yet.
+	{ "lng_chat_status_members#one", "{count} участник" },
+	{ "lng_chat_status_members#few", "{count} участника" },
+	{ "lng_chat_status_members#many", "{count} участников" },
+	{ "lng_chat_status_members#other", "{count} участников" },
+	{ "lng_profile_participants_section", "Участники" },
+	{ "lng_status_online", "в сети" },
+	{ "lng_sg_num_million", "млн" },
+	{ "lng_sg_num_billion", "млрд" },
+	{ "lng_sg_num_trillion", "трлн" },
+	{ "lng_sg_num_quadrillion", "квадрлн" },
+	{ "lng_sg_num_quintillion", "квинтлн" },
+	{ "lng_message_unsupported", "Это сообщение не поддерживается вашей версией StaticGram. Обновите StaticGram до последней версии в Настройки > Дополнительно или установите с {link}. Если у вас уже последняя версия, возможно, сообщение зависит от функции, которая ещё не реализована." },
+	{ "lng_unsupported_message_text", "Обновите StaticGram, чтобы посмотреть это сообщение" },
 	{ "lng_sg_badge_preview", "Предпросмотр" },
 	{ "lng_sg_badge_emoji", "Эмодзи бейджа" },
 	{ "lng_sg_badge_text", "Текст бейджа" },
