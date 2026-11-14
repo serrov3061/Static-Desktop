@@ -114,6 +114,18 @@ bool ScaledBotVerifiedEmoji::readyInDefaultState() {
 
 } // namespace
 
+std::unique_ptr<Text::CustomEmoji> CreateBotVerifiedEmoji(
+		DocumentId iconId,
+		Text::CustomEmojiFactory factory,
+		Fn<void()> repaint) {
+	const auto outer = st::emojiSize;
+	const auto inner = int(base::SafeRound(outer * kBotVerifiedScale));
+	return MakeWrappedEmoji<ScaledBotVerifiedEmoji>(
+		factory(Data::SerializeCustomEmojiId(iconId), { .repaint = repaint }),
+		inner,
+		outer);
+}
+
 struct PeerBadge::EmojiStatus {
 	EmojiStatusId id;
 	std::unique_ptr<Ui::Text::CustomEmoji> emoji;

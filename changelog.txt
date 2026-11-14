@@ -1,6 +1,7 @@
 7.4.4 (12.11.26)
 
 - Pinned NFT gifts orbit the profile avatar in glass bubbles; drag one out to enlarge it, click to open.
+- Telegram Desktop 7.4.4 base: multi-select for proxies and contacts, voice/round video filter, reply in forward, Ctrl+O to replace media, crash and security fixes.
 
 7.4.3 (12.11.26)
 
