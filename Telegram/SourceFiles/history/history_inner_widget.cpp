@@ -137,6 +137,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/ui/dialogs_video_userpic.h"
 #include "styles/style_chat.h"
 #include "styles/style_menu_icons.h"
+#include "mokagram/streamer/mokagram_streamer.h"
 
 #include <QtGui/QClipboard>
 #include <QtWidgets/QApplication>
@@ -3705,7 +3706,11 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					} else if (const auto contact = media->sharedContact()) {
 						const auto phone = contact->phoneNumber;
 						_menu->addAction(tr::lng_profile_copy_phone(tr::now), [=] {
-							QGuiApplication::clipboard()->setText(phone);
+							if (Mokagram::Streamer::CopyBlocked(Mokagram::Streamer::Field::Phone)) {
+								return;
+							}
+							QGuiApplication::clipboard()->setText(
+								Mokagram::Streamer::ForCopy(Mokagram::Streamer::Field::Phone, phone));
 						}, &st::menuIconCopy);
 					} else if (media->gift()) {
 						HistoryView::AddGiftMessageAction(
@@ -4855,6 +4860,9 @@ void HistoryInner::updateSize() {
 	if (aboutBelowHistory) {
 		accumulate_max(newHistoryMarginBottom, _aboutView->height);
 	}
+	// StaticGram (mokaGram 11.2026): the history goes under the floating
+	// compose card, keep its bottom above the card.
+	newHistoryMarginBottom += _scroll->property("mokaBottomSkip").toInt();
 	auto newHistoryMarginTop = std::max(
 		visibleHeight - itemsHeight - newHistoryMarginBottom,
 		0);
