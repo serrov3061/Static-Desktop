@@ -7,6 +7,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 class HistoryItem;
+class PeerData;
+
+namespace Data {
+struct CreditsHistoryEntry;
+} // namespace Data
 
 namespace Main {
 class SessionShow;
@@ -30,6 +35,15 @@ class Media;
 void ShowSgTransferDetails(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<HistoryItem*> item);
+
+// StaticGram: a Stars transfer row of the «Деньги» history (sgcard.sendStars)
+// opens the same receipt as the chat card, not the upstream Stars box.
+[[nodiscard]] bool IsSgStarsTransferEntry(
+	const Data::CreditsHistoryEntry &entry);
+void ShowSgStarsTransferReceipt(
+	std::shared_ptr<Main::SessionShow> show,
+	not_null<PeerData*> self,
+	const Data::CreditsHistoryEntry &entry);
 
 // gramsrv marks a captioned admin grant sent as a transfer action with this
 // transaction id prefix (tlprofile.GrantTransferIDPrefix).

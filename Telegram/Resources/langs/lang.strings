@@ -9313,6 +9313,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_money_error_comment" = "The comment is too long (up to {max} characters).";
 "lng_sg_money_error_amount" = "Invalid amount.";
 "lng_sg_money_error_code" = "Error: {code}";
+"lng_settings_money_privacy" = "Who can send me money";
+"lng_edit_privacy_money_title" = "Who can send me money";
+"lng_edit_privacy_money_header" = "Who can send me Stars and GRAM";
+"lng_edit_privacy_money_always_empty" = "Always allow";
+"lng_edit_privacy_money_never_empty" = "Never allow";
+"lng_edit_privacy_money_exceptions" = "These users will or will not be able to send you Stars and GRAM regardless of the settings above.";
+"lng_edit_privacy_money_always_title" = "Always allow";
+"lng_edit_privacy_money_never_title" = "Never allow";
+"lng_sg_money_error_forbidden" = "This user doesn't accept money.";
+"lng_sg_money_error_price_stars" = "A transfer with a message to this user costs at least {amount} Stars. Remove the comment or increase the amount.";
+"lng_sg_money_error_price_gram" = "A transfer with a message to this user costs at least {amount} GRAM. Remove the comment or increase the amount.";
 // StaticGram a2-ui: transfer cards in chat.
 "lng_sg_stars_amount#one" = "{count} Star";
 "lng_sg_stars_amount#other" = "{count} Stars";

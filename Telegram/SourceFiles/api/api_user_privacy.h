@@ -34,6 +34,7 @@ public:
 		GiftsAutoSave,
 		NoPaidMessages,
 		SavedMusic,
+		MoneyTransfers, // StaticGram: sgcard.get/setMoneyPrivacy.
 	};
 	enum class Option {
 		Everyone,
@@ -70,6 +71,7 @@ public:
 private:
 	const not_null<Main::Session*> _session;
 
+	void saveMoneyTransfers(const Rule &rule);
 	void pushPrivacy(Key key, const MTPVector<MTPPrivacyRule> &rules);
 
 	base::flat_map<mtpTypeId, mtpRequestId> _privacySaveRequests;

@@ -528,6 +528,35 @@ void Send(
 }
 
 QString ErrorText(const QString &type) {
+	// STARS_TRANSFER_COMMENT_PRICE_<stars> / GRAM_TRANSFER_COMMENT_PRICE_<nano>:
+	// the recipient charges for messages, so a transfer with a comment must
+	// be worth at least the paid-message price.
+	const auto starsPrefix = u"STARS_TRANSFER_COMMENT_PRICE_"_q;
+	const auto gramPrefix = u"GRAM_TRANSFER_COMMENT_PRICE_"_q;
+	if (type.startsWith(starsPrefix) || type.startsWith(gramPrefix)) {
+		const auto stars = type.startsWith(starsPrefix);
+		auto ok = false;
+		auto value = type.mid(
+			(stars ? starsPrefix : gramPrefix).size()).toLongLong(&ok);
+		if (ok && value > 0) {
+			if (stars) {
+				return tr::lng_sg_money_error_price_stars(
+					tr::now,
+					lt_amount,
+					FormatStars(value));
+			}
+			// Shown with 2 decimals: never round below the minimum.
+			constexpr auto kStep = int64(10'000'000);
+			value = (value + kStep - 1) / kStep * kStep;
+			return tr::lng_sg_money_error_price_gram(
+				tr::now,
+				lt_amount,
+				FormatGram(value));
+		}
+	}
+	if (type == u"MONEY_TRANSFER_FORBIDDEN"_q) {
+		return tr::lng_sg_money_error_forbidden(tr::now);
+	}
 	if (type == u"BALANCE_TOO_LOW"_q) {
 		return tr::lng_sg_money_error_balance(tr::now);
 	} else if (type == u"USER_GIFT_UNAVAILABLE"_q
