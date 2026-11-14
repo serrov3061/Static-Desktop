@@ -32,6 +32,10 @@ namespace StaticGram {
 class ProfileGiftBubbles;
 } // namespace StaticGram
 
+namespace StaticGram::LocalSettings {
+[[nodiscard]] bool ProfileGiftBubbles();
+} // namespace StaticGram::LocalSettings
+
 namespace Lottie {
 class Animation;
 class MultiPlayer;
@@ -411,6 +415,9 @@ private:
 	bool _hasLiveStories = false;
 
 	std::unique_ptr<StaticGram::ProfileGiftBubbles> _sgGiftBubbles;
+	// «Gift bubbles» switch, read when the profile opens.
+	const bool _sgGiftBubblesEnabled
+		= StaticGram::LocalSettings::ProfileGiftBubbles();
 
 	std::optional<uint8> _localColorProfileIndex;
 	std::optional<DocumentId> _localPatternEmojiId;

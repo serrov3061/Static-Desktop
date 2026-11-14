@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_main.h"
 #include "settings/sections/settings_privacy_security.h"
 #include "settings/sections/settings_shortcuts.h"
+#include "staticgram/sg_local_settings.h"
 #include "boxes/abstract_box.h"
 #include "boxes/peers/edit_peer_color_box.h"
 #include "boxes/connection_box.h"
@@ -1046,6 +1047,32 @@ void BuildSensitiveContentSection(SectionBuilder &builder) {
 	});
 }
 
+void BuildStaticGramProfileSection(SectionBuilder &builder) {
+	// StaticGram (Android «Appearance» → «Profile» → «Gift bubbles»).
+	builder.addDivider();
+	builder.addSkip();
+	builder.addSubsectionTitle(tr::lng_sg_settings_profile());
+	const auto bubbles = builder.addButton({
+		.id = u"chat/sg-gift-bubbles"_q,
+		.title = tr::lng_sg_settings_gift_bubbles(),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = rpl::single(
+			StaticGram::LocalSettings::ProfileGiftBubbles()),
+		.keywords = { u"gift"_q, u"bubbles"_q, u"profile"_q },
+	});
+	if (bubbles) {
+		bubbles->toggledValue(
+		) | rpl::filter([](bool enabled) {
+			return (enabled
+				!= StaticGram::LocalSettings::ProfileGiftBubbles());
+		}) | rpl::on_next([](bool enabled) {
+			StaticGram::LocalSettings::SetProfileGiftBubbles(enabled);
+		}, bubbles->lifetime());
+	}
+	builder.addSkip();
+	builder.addDividerText(tr::lng_sg_settings_gift_bubbles_about());
+}
+
 void BuildArchiveSection(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
@@ -1232,6 +1259,7 @@ void BuildChatSectionContent(SectionBuilder &builder) {
 	BuildStickersEmojiSection(builder);
 	BuildMessagesSection(builder);
 	BuildSensitiveContentSection(builder);
+	BuildStaticGramProfileSection(builder);
 	BuildArchiveSection(builder);
 	BuildSupportSection(builder);
 }
