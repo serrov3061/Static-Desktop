@@ -45,6 +45,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
+#include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "settings/settings_common.h"
 #include "settings/sections/settings_premium.h"
@@ -1607,6 +1608,17 @@ void FrozenInfoBox(
 		style::al_top);
 
 	Ui::AddSkip(content, st::defaultVerticalListSkip * 3);
+
+	// StaticGram: the reason the moderators gave for this freeze, first.
+	const auto sgReason = session->appConfig().get<QString>(
+		u"sg_freeze_reason"_q,
+		QString()).trimmed();
+	if (!sgReason.isEmpty()) {
+		infoRow(
+			tr::lng_sg_freeze_reason_title(),
+			rpl::single(TextWithEntities{ sgReason }),
+			&st::menuIconInfo);
+	}
 
 	infoRow(
 		tr::lng_frozen_subtitle1(),
