@@ -1,4 +1,0 @@
-lng_sg_streamer_title = "Режим стримера"
-lng_sg_performance_title = "Производительность"
-lng_sg_music_title = "Музыка"
-lng_sg_screenshot_messages = "Скриншот сообщений"
