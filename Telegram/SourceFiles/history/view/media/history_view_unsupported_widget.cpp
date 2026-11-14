@@ -22,6 +22,11 @@ namespace HistoryView {
 UnsupportedWidget::UnsupportedWidget(not_null<Element*> parent)
 : Media(parent)
 , _link(std::make_shared<LambdaClickHandler>([] {
+	// StaticGram: like sg://update, the check starts right away.
+	if (!Core::UpdaterDisabled()) {
+		cSetLastUpdateCheck(0);
+		Core::UpdateChecker().start();
+	}
 	Core::UpdateApplication();
 })) {
 	_card.setTexts(

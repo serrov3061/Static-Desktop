@@ -2012,6 +2012,24 @@ bool ShowStaticGramSettings(
 	return true;
 }
 
+// StaticGram: sg://money opens «Деньги»; sg://money/stars opens the Stars
+// part of it (Android LinkManager "money", sg://money/gram for GRAM).
+bool ShowStaticGramMoney(
+		Window::SessionController *controller,
+		const Match &match,
+		const QVariant &context) {
+	if (!controller) {
+		return false;
+	}
+	Core::App().hideMediaView();
+	StaticGram::Money::ShowMoneyBox(
+		controller,
+		(match->captured(2).compare(u"stars"_q, Qt::CaseInsensitive) == 0)
+			? StaticGram::Money::Kind::Stars
+			: StaticGram::Money::Kind::Gram);
+	return true;
+}
+
 // StaticGram: sg://card?id=<uid>&kind=<0|1> opens that user's money cards
 // (Android SGCards.parseCardLink).
 bool ShowStaticGramCard(
@@ -2180,6 +2198,10 @@ const std::vector<LocalUrlHandler> &LocalUrlHandlers() {
 		{
 			u"^(staticsettings|exterasettings|extera|static)/?(\\?(.*))?(#|$)"_q,
 			ShowStaticGramSettings
+		},
+		{
+			u"^money(/(stars|gram))?/?(\\?(.*))?(#|$)"_q,
+			ShowStaticGramMoney
 		},
 		{
 			u"^card/?\\?(.+?)(#|$)"_q,

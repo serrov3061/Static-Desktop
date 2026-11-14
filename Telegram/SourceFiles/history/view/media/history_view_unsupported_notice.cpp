@@ -20,7 +20,13 @@ namespace HistoryView {
 namespace {
 
 [[nodiscard]] ClickHandlerPtr MakeUpdateTelegramHandler() {
+	// StaticGram: like sg://update (Android «Обновить»): our update
+	// channel, the check starts right away in Settings > Advanced.
 	return std::make_shared<LambdaClickHandler>([] {
+		if (!Core::UpdaterDisabled()) {
+			cSetLastUpdateCheck(0);
+			Core::UpdateChecker().start();
+		}
 		Core::UpdateApplication();
 	});
 }
