@@ -1,0 +1,1032 @@
+// This file is part of mokaGram, https://github.com/ecronxy/mokagram
+// (c) 2026 @ecronx (https://t.me/ecronx). GPLv3 with the attribution term
+// of MOKAGRAM_NOTICE.md (section 7(b)): keep this notice when copying.
+// mokagram-id: 80e3dd12
+#include "mokagram/music/mokagram_lyrics.h"
+
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QPointer>
+#include <QtCore/QRegularExpression>
+#include <QtCore/QUrl>
+#include <QtCore/QUrlQuery>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
+
+#include "logs.h"
+
+#include <crl/crl.h>
+#include <QtGui/QImage>
+#include <QtGui/QTextDocumentFragment>
+
+#include <map>
+#include <vector>
+#include <QtCore/QTimer>
+
+namespace Mokagram::Music {
+namespace {
+
+QNetworkAccessManager &Net() {
+	static auto manager = new QNetworkAccessManager();
+	return *manager;
+}
+
+constexpr auto kMaxTextBytes = 4 * 1024 * 1024;     // json/html-ответы источников
+constexpr auto kMaxArtworkBytes = 32 * 1024 * 1024; // картинки обложек
+
+// Разрешаем только https на известных хостах: ответы API не должны уводить загрузку
+// на file:// или чужой сервер. mzstatic.com и dzcdn.net — каталоги обложек iTunes и Deezer.
+[[nodiscard]] bool SafeMediaUrl(const QUrl &url) {
+	const auto host = url.host();
+	return url.isValid()
+		&& url.scheme() == u"https"_q
+		&& url.userInfo().isEmpty()
+		&& url.port(-1) == -1
+		&& (host == u"lrclib.net"_q
+			|| host == u"genius.com"_q
+			|| host == u"itunes.apple.com"_q
+			|| host == u"api.deezer.com"_q
+			|| host.endsWith(u".mzstatic.com"_q)
+			|| host.endsWith(u".dzcdn.net"_q));
+}
+
+// Слишком большие ответы обрываем: readAll() не должен собирать гигабайты.
+void LimitReply(QNetworkReply *reply, qint64 limit) {
+	reply->setReadBufferSize(limit + 1);
+	QObject::connect(reply, &QNetworkReply::downloadProgress, reply,
+		[=](qint64 received, qint64 total) {
+			if (received > limit || total > limit) {
+				reply->abort();
+			}
+		});
+}
+
+std::map<QString, Lyrics> &Cache() {
+	static auto result = std::map<QString, Lyrics>();
+	return result;
+}
+
+// Кто ждёт текст трека, который уже ищется: один поиск на трек.
+std::map<QString, std::vector<Fn<void(Lyrics)>>> &Pending() {
+	static auto result = std::map<QString, std::vector<Fn<void(Lyrics)>>>();
+	return result;
+}
+
+constexpr auto kTooManyRequests = 429;
+constexpr auto kRetries = 2;
+constexpr auto kRetryDelay = 1500;
+
+[[nodiscard]] Lyrics ParseLrc(const QString &text) {
+	auto result = Lyrics();
+	static const auto stamp = QRegularExpression(
+		uR"(\[(\d+):(\d+)(?:[.:](\d+))?\])"_q);
+	for (const auto &raw : text.split('\n')) {
+		auto times = std::vector<qint64>();
+		auto last = 0;
+		auto it = stamp.globalMatch(raw);
+		while (it.hasNext()) {
+			const auto m = it.next();
+			auto fraction = m.captured(3);
+			const auto ms = fraction.isEmpty()
+				? 0
+				: (fraction.leftJustified(3, '0').left(3).toInt());
+			times.push_back(
+				m.captured(1).toLongLong() * 60000
+				+ m.captured(2).toLongLong() * 1000
+				+ ms);
+			last = m.capturedEnd();
+		}
+		if (times.empty()) {
+			continue;
+		}
+		const auto line = raw.mid(last).trimmed();
+		for (const auto time : times) {
+			result.lines.push_back({ time, line });
+		}
+	}
+	std::sort(result.lines.begin(), result.lines.end(), [](const auto &a, const auto &b) {
+		return a.timeMs < b.timeMs;
+	});
+	result.synced = !result.lines.empty();
+	result.found = result.synced;
+	return result;
+}
+
+// Версии speed up и slowed идут быстрее или медленнее оригинала: метки времени
+// растягиваем во столько же раз, во сколько отличается длина трека.
+// Растягиваем метки, только если версия реально другой скорости.
+// Разница до 12 секунд это тишина или интро в начале/конце, а не скорость:
+// растяжка тогда копит отставание к концу песни.
+[[nodiscard]] double SpeedRatio(double durationMs, double sourceMs) {
+	if (durationMs <= 0. || sourceMs <= 0.
+		|| std::abs(sourceMs - durationMs) <= 12000.) {
+		return 1.;
+	}
+	return durationMs / sourceMs;
+}
+
+void ScaleTimes(Lyrics &lyrics, double ratio) {
+	if (std::abs(ratio - 1.) < 0.01) {
+		return;
+	}
+	for (auto &line : lyrics.lines) {
+		line.timeMs = qint64(line.timeMs * ratio);
+	}
+}
+
+[[nodiscard]] Lyrics ParsePlain(const QString &text) {
+	auto result = Lyrics();
+	for (const auto &raw : text.split('\n')) {
+		result.lines.push_back({ 0, raw.trimmed() });
+	}
+	result.found = !result.lines.empty();
+	return result;
+}
+
+// Название без любых скобок: пометки вроде "(slowed + reverb)" ищут хуже всего.
+[[nodiscard]] QString WithoutBrackets(const QString &text) {
+	static const auto brackets = QRegularExpression(uR"(\s*[\(\[][^\)\]]*[\)\]])"_q);
+	auto result = text;
+	result.remove(brackets);
+	result = result.trimmed();
+	return result.isEmpty() ? text : result;
+}
+
+[[nodiscard]] Lyrics Pick(
+		const QJsonArray &list,
+		qint64 durationMs,
+		const QString &matchingTitle = {}) {
+	auto best = QJsonObject();
+	auto bestScore = -1e9;
+	auto bestSynced = false;
+	auto bestRatio = 1.;
+	for (const auto &value : list) {
+		const auto item = value.toObject();
+		const auto synced = item.value("syncedLyrics").toString();
+		const auto plain = item.value("plainLyrics").toString();
+		if (synced.isEmpty() && plain.isEmpty()) {
+			continue;
+		}
+		const auto source = item.value("duration").toDouble() * 1000.;
+		const auto ratio = SpeedRatio(durationMs, source);
+		const auto diff = std::abs(source - durationMs);
+		if (!matchingTitle.isEmpty()) {
+			const auto title = WithoutBrackets(CleanTitle(
+				item.value("trackName").toString(),
+				item.value("artistName").toString()));
+			if (title.compare(matchingTitle, Qt::CaseInsensitive) != 0
+				|| durationMs <= 0
+				|| source <= 0.
+				|| diff > 1000.) {
+				continue;
+			}
+		}
+		auto useSynced = false;
+		auto score = 10. - std::min(diff / 1000., 9.);
+		if (!synced.isEmpty() && (durationMs <= 0 || diff <= 12000.)) {
+			useSynced = true;
+			score = 100. - diff / 1000.;
+		} else if (!synced.isEmpty() && ratio > 0.5 && ratio < 2.) {
+			// Другая скорость: метки подгоним по отношению длин.
+			useSynced = true;
+			score = 60. - std::abs(std::log(ratio)) * 20.;
+		}
+		if (score > bestScore) {
+			bestScore = score;
+			best = item;
+			bestSynced = useSynced;
+			bestRatio = ratio;
+		}
+	}
+	if (bestScore < -1e8) {
+		return {};
+	}
+	// Названия в лог не пишем: запросы могут быть личными.
+	LOG(("[lyrics] lrclib picked a variant (%1 s)")
+		.arg(best.value("duration").toDouble()));
+	if (bestSynced) {
+		auto result = ParseLrc(best.value("syncedLyrics").toString());
+		if (result.found) {
+			ScaleTimes(result, bestRatio);
+			return result;
+		}
+	}
+	const auto plain = best.value("plainLyrics").toString();
+	if (!plain.isEmpty()) {
+		return ParsePlain(plain);
+	}
+	return ParsePlain(best.value("syncedLyrics").toString().remove(
+		QRegularExpression(uR"(\[[^\]]*\])"_q)));
+}
+
+void Request(
+		QUrlQuery query,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done,
+		QString matchingTitle = {},
+		int attempt = 0) {
+	// '+' и скобки кодируем сами: QUrlQuery оставляет '+' как есть, и сервис читает его пробелом.
+	auto parts = QStringList();
+	for (const auto &[key, value] : query.queryItems()) {
+		parts.push_back(key + u"="_q + QString::fromLatin1(QUrl::toPercentEncoding(value)));
+	}
+	auto url = QUrl(u"https://lrclib.net/api/search?"_q + parts.join('&'));
+	if (!SafeMediaUrl(url)) {
+		done(Lyrics{ .unavailable = true });
+		return;
+	}
+	auto request = QNetworkRequest(url);
+	request.setRawHeader("User-Agent", "mokaGram (https://github.com/ecronx/mokagram)");
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	LimitReply(reply, kMaxTextBytes);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		auto result = Lyrics();
+		// В лог идёт только хост: полный URL содержит название трека.
+		LOG(("[lyrics] %1: error %2").arg(url.host()).arg(reply->errorString()));
+		// lrclib режет частые запросы: ждём и пробуем ещё, а не «недоступен».
+		const auto status = reply->attribute(
+			QNetworkRequest::HttpStatusCodeAttribute).toInt();
+		if (status == kTooManyRequests && attempt < kRetries) {
+			QTimer::singleShot(kRetryDelay * (attempt + 1), [=] {
+				Request(query, durationMs, done, matchingTitle, attempt + 1);
+			});
+			return;
+		}
+		if (reply->error() == QNetworkReply::NoError) {
+			const auto doc = QJsonDocument::fromJson(reply->readAll());
+			if (doc.isArray()) {
+				result = Pick(doc.array(), durationMs, matchingTitle);
+			} else {
+				result.unavailable = true;
+			}
+		} else {
+			result.unavailable = true;
+		}
+		done(std::move(result));
+	});
+}
+
+void GetJson(
+		const QString &address,
+		Fn<void(QJsonDocument)> done,
+		QByteArray referer = "https://music.163.com/") {
+	auto request = QNetworkRequest(QUrl(address));
+	request.setRawHeader("User-Agent", "Mozilla/5.0");
+	request.setRawHeader("Referer", referer);
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		const auto doc = (reply->error() == QNetworkReply::NoError)
+			? QJsonDocument::fromJson(reply->readAll())
+			: QJsonDocument();
+		done(doc.object().value("code").toInt(200) == 200
+			&& doc.object().value("status").toInt(200) == 200
+			? doc
+			: QJsonDocument());
+	});
+}
+
+struct KugouCandidate {
+	QString id;
+	QString accesskey;
+	double diff = 0.;
+	double ratio = 1.;
+};
+
+void RequestKugouCandidate(
+		std::vector<KugouCandidate> candidates,
+		size_t index,
+		Fn<void(Lyrics)> done,
+		bool unavailable = false) {
+	if (index == candidates.size()) {
+		done(Lyrics{ .unavailable = unavailable });
+		return;
+	}
+	const auto candidate = candidates[index];
+	const auto address = u"https://lyrics.kugou.com/download?ver=1&client=pc&fmt=lrc&charset=utf8&id="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(candidate.id))
+		+ u"&accesskey="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(candidate.accesskey));
+	GetJson(address, [=](QJsonDocument doc) {
+		const auto encoded = doc.object().value("content").toString().toLatin1();
+		const auto decoded = QByteArray::fromBase64Encoding(
+			encoded,
+			QByteArray::AbortOnBase64DecodingErrors);
+		auto result = decoded
+			? ParseLrc(QString::fromUtf8(decoded.decoded))
+			: Lyrics();
+		result.found = result.synced
+			&& std::any_of(result.lines.begin(), result.lines.end(), [](const auto &line) {
+				return !line.text.isEmpty();
+			});
+		if (result.found) {
+			ScaleTimes(result, candidate.ratio);
+			done(std::move(result));
+		} else {
+			RequestKugouCandidate(candidates, index + 1, done, unavailable || doc.isNull());
+		}
+	}, "https://www.kugou.com/");
+}
+
+void RequestKugou(
+		const QString &trackName,
+		const QString &artistName,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done) {
+	const auto address = u"https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(artistName + u" "_q + trackName))
+		+ u"&duration="_q + QString::number(std::max<qint64>(durationMs, 0));
+	GetJson(address, [=](QJsonDocument doc) {
+		if (doc.isNull()) {
+			done(Lyrics{ .unavailable = true });
+			return;
+		}
+		const auto normalize = [](const QString &text) {
+			return text.normalized(QString::NormalizationForm_KC).simplified().toCaseFolded();
+		};
+		const auto wanted = normalize(trackName);
+		const auto artist = normalize(artistName);
+		auto candidates = std::vector<KugouCandidate>();
+		for (const auto &value : doc.object().value("candidates").toArray()) {
+			const auto item = value.toObject();
+			const auto singer = normalize(item.value("singer").toString());
+			const auto title = normalize(WithoutBrackets(CleanTitle(
+				item.value("song").toString(),
+				item.value("singer").toString())));
+			if (wanted.isEmpty()
+				|| title != wanted
+				|| (!artist.isEmpty()
+					&& (singer.isEmpty()
+						|| (!singer.contains(artist) && !artist.contains(singer))))) {
+				continue;
+			}
+			const auto source = item.value("duration").toDouble();
+			const auto diff = durationMs > 0 ? std::abs(source - durationMs) : 0.;
+			const auto ratio = SpeedRatio(durationMs, source);
+			const auto id = item.value("id").toString();
+			const auto accesskey = item.value("accesskey").toString();
+			if (id.isEmpty()
+				|| accesskey.isEmpty()
+				|| (durationMs > 0
+					&& (source <= 0. || (diff > 12000. && (ratio <= 0.5 || ratio >= 2.))))) {
+				continue;
+			}
+			candidates.push_back({ id, accesskey, diff, ratio });
+		}
+		std::stable_sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) {
+			return a.diff < b.diff;
+		});
+		if (candidates.size() > 5) {
+			candidates.resize(5);
+		}
+		RequestKugouCandidate(std::move(candidates), 0, done);
+	}, "https://www.kugou.com/");
+}
+
+struct NeteaseCandidate {
+	qint64 id = 0;
+	double diff = 0.;
+	double ratio = 1.;
+};
+
+void RequestNeteaseCandidate(
+		std::vector<NeteaseCandidate> candidates,
+		size_t index,
+		Fn<void(Lyrics)> done,
+		bool unavailable = false) {
+	if (index == candidates.size()) {
+		done(Lyrics{ .unavailable = unavailable });
+		return;
+	}
+	const auto candidate = candidates[index];
+	GetJson(
+		u"https://music.163.com/api/song/lyric?lv=1&kv=1&tv=-1&id="_q
+			+ QString::number(candidate.id),
+		[=](QJsonDocument lyric) {
+			const auto text = lyric.object().value("lrc").toObject().value("lyric").toString();
+			auto result = text.isEmpty() ? Lyrics() : ParseLrc(text);
+			// Служебные строки с авторами (作词, 作曲...) не показываем.
+			static const auto credits = QRegularExpression(
+				uR"(^\s*(作词|作曲|编曲|制作|作詞|编曲|词|曲|Lyrics|Music|Composer|Producer|Arranger)\s*[:：])"_q,
+				QRegularExpression::CaseInsensitiveOption);
+			auto &lines = result.lines;
+			lines.erase(
+				std::remove_if(lines.begin(), lines.end(), [&](const LyricLine &l) {
+					return credits.match(l.text).hasMatch();
+				}),
+				lines.end());
+			result.found = !lines.empty();
+			if (result.found) {
+				ScaleTimes(result, candidate.ratio);
+				done(std::move(result));
+			} else {
+				RequestNeteaseCandidate(
+					candidates,
+					index + 1,
+					done,
+					unavailable || lyric.isNull());
+			}
+		});
+}
+
+// Запасной источник: NetEase отдаёт строки с метками времени для многих треков.
+void RequestNetease(
+		const QString &query,
+		const QString &trackName,
+		const QString &artistName,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done,
+		bool strict = false) {
+	const auto search = u"https://music.163.com/api/search/get?type=1&limit=8&s="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(query));
+	GetJson(search, [=](QJsonDocument doc) {
+		if (doc.isNull()) {
+			done(Lyrics{ .unavailable = true });
+			return;
+		}
+		const auto songs = doc.object().value("result").toObject().value("songs").toArray();
+		auto candidates = std::vector<NeteaseCandidate>();
+		for (const auto &value : songs) {
+			const auto song = value.toObject();
+			const auto name = song.value("name").toString().toLower();
+			const auto wanted = trackName.toLower();
+			// Берём только песню с тем же названием, иначе слова будут чужие.
+			if (name.isEmpty()
+				|| (wanted.size() >= 2
+					&& !name.contains(wanted)
+					&& !wanted.contains(name))) {
+				continue;
+			}
+			// Тот же исполнитель или точное название и почти та же длительность:
+			// «название содержит слово» без этого даёт чужие песни.
+			auto artistOk = false;
+			const auto wantedArtist = artistName.toLower();
+			for (const auto &performer : song.value("artists").toArray()) {
+				const auto who = performer.toObject().value("name").toString().toLower();
+				if (!wantedArtist.isEmpty()
+					&& (who.contains(wantedArtist) || wantedArtist.contains(who))) {
+					artistOk = true;
+				}
+			}
+			const auto exact = (WithoutBrackets(name) == WithoutBrackets(wanted));
+			const auto source = song.value("duration").toDouble();
+			const auto diff = durationMs > 0
+				? std::abs(source - durationMs)
+				: 0.;
+			const auto ratio = SpeedRatio(durationMs, source);
+			const auto id = qint64(song.value("id").toDouble());
+			if (!id
+				|| (!artistOk && (!exact || durationMs <= 0 || diff > 1000.))
+				|| (strict && durationMs > 0 && diff > 4000.)
+				|| (durationMs > 0
+					&& diff > 12000.
+					&& (ratio <= 0.5 || ratio >= 2.))) {
+				continue;
+			}
+			candidates.push_back({ id, diff, ratio });
+		}
+		std::stable_sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) {
+			return a.diff < b.diff;
+		});
+		RequestNeteaseCandidate(std::move(candidates), 0, done);
+	});
+}
+
+void RequestFallback(
+		const QString &trackName,
+		const QString &artistName,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done,
+		bool unavailable = false) {
+	const auto netease = [=](bool failed) {
+		RequestNetease(
+			artistName + u" "_q + trackName,
+			trackName,
+			artistName,
+			durationMs,
+			[=](Lyrics result) {
+				result.unavailable |= failed && !result.found;
+				done(std::move(result));
+			});
+	};
+	const auto kugou = [=](bool failed) {
+		RequestKugou(trackName, artistName, durationMs, [=](Lyrics result) {
+			if (result.found) {
+				done(std::move(result));
+			} else {
+				netease(failed || result.unavailable);
+			}
+		});
+	};
+	if (durationMs <= 0 || unavailable) {
+		kugou(unavailable);
+		return;
+	}
+	auto query = QUrlQuery();
+	query.addQueryItem(u"track_name"_q, trackName);
+	Request(query, durationMs, [=](Lyrics result) {
+		if (result.found) {
+			done(std::move(result));
+		} else {
+			kugou(result.unavailable);
+		}
+	}, trackName);
+}
+
+} // namespace
+
+QString CleanTitle(const QString &title, const QString &artist) {
+	auto result = title.trimmed();
+	static const auto extension = QRegularExpression(
+		uR"(\.(mp3|m4a|flac|ogg|oga|opus|wav|aac|aiff|aif|wma|alac)$)"_q,
+		QRegularExpression::CaseInsensitiveOption);
+	result.remove(extension);
+	result.replace(QChar('_'), QChar(' '));
+	static const auto tail = QRegularExpression(
+		uR"(\s*[\(\[][^\)\]]*(official|video|audio|lyrics|clip|прем|клип|visualizer|hd|4k)[^\)\]]*[\)\]])"_q,
+		QRegularExpression::CaseInsensitiveOption);
+	result.remove(tail);
+	const auto prefix = artist.trimmed() + u" - "_q;
+	if (!artist.isEmpty() && result.startsWith(prefix, Qt::CaseInsensitive)) {
+		result = result.mid(prefix.size());
+	}
+	return result.simplified();
+}
+
+namespace {
+
+struct SplitResult {
+	QString clean;
+	QString trackName;
+	QString artistName;
+};
+
+[[nodiscard]] SplitResult SplitName(const QString &title, const QString &artist) {
+	auto result = SplitResult{ .clean = CleanTitle(title, QString()) };
+	// "Исполнитель - Название" внутри заголовка: у загрузчика чужое имя.
+	result.trackName = result.clean;
+	result.artistName = artist.trimmed();
+	static const auto separator = QRegularExpression(uR"(\s+[-–—]\s+)"_q);
+	const auto dash = separator.match(result.clean);
+	if (dash.hasMatch() && dash.capturedStart() > 0) {
+		result.artistName = result.clean.left(dash.capturedStart()).trimmed();
+		result.trackName = CleanTitle(
+			result.clean.mid(dash.capturedEnd()),
+			result.artistName);
+	}
+	result.trackName = WithoutBrackets(result.trackName);
+	return result;
+}
+
+// Тот ли это трек: название и исполнитель совпадают, длительность близка.
+[[nodiscard]] bool SameTrack(
+		const SplitResult &wanted,
+		qint64 durationMs,
+		const QString &title,
+		const QString &artist,
+		qint64 sourceMs) {
+	const auto name = WithoutBrackets(CleanTitle(title, artist));
+	if (name.compare(wanted.trackName, Qt::CaseInsensitive) != 0) {
+		return false;
+	}
+	const auto performer = artist.toLower();
+	const auto expected = wanted.artistName.toLower();
+	if (!expected.isEmpty()
+		&& !performer.contains(expected)
+		&& !expected.contains(performer)) {
+		return false;
+	}
+	return durationMs <= 0
+		|| sourceMs <= 0
+		|| std::abs(sourceMs - durationMs) <= 4000;
+}
+
+// Последняя попытка, когда исполнитель в метаданных чужой (загрузчик, а не автор):
+// ищем по одному названию, но берём только точное название и близкую длительность.
+void RequestLastResort(
+		const SplitResult &split,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done) {
+	const auto name = split.trackName;
+	if (name.size() < 4) {
+		done({});
+		return;
+	}
+	const auto netease = [=] {
+		RequestNetease(name, name, split.artistName, durationMs, done, true);
+	};
+	auto byName = QUrlQuery();
+	byName.addQueryItem(u"q"_q, name);
+	Request(byName, durationMs, [=](Lyrics result) {
+		if (result.found) {
+			done(std::move(result));
+			return;
+		}
+		// «Название - Исполнитель»: порядок мог быть обратным.
+		static const auto separator = QRegularExpression(uR"(\s+[-–—]\s+)"_q);
+		const auto dash = separator.match(split.clean);
+		if (!dash.hasMatch() || dash.capturedStart() <= 0) {
+			netease();
+			return;
+		}
+		auto swapped = QUrlQuery();
+		swapped.addQueryItem(
+			u"track_name"_q,
+			WithoutBrackets(CleanTitle(split.clean.left(dash.capturedStart()), QString())));
+		swapped.addQueryItem(u"artist_name"_q, split.clean.mid(dash.capturedEnd()).trimmed());
+		Request(swapped, durationMs, [=](Lyrics result) {
+			if (result.found) {
+				done(std::move(result));
+			} else {
+				netease();
+			}
+		});
+	}, name);
+}
+
+// Последний источник: Genius. Тайминга нет, только простой текст. Ключ не нужен,
+// но сайт режет браузерный User-Agent, поэтому представляемся клиентом.
+[[nodiscard]] QString GeniusText(const QString &html) {
+	static const auto marker = QString::fromLatin1("data-lyrics-container=\"true\"");
+	static const auto tag = QRegularExpression(uR"(<(/?)div\b[^>]*>)"_q);
+	auto result = QString();
+	auto from = 0;
+	while (true) {
+		const auto at = html.indexOf(marker, from);
+		if (at < 0) {
+			break;
+		}
+		const auto open = html.indexOf('>', at);
+		if (open < 0) {
+			break;
+		}
+		auto depth = 1;
+		auto end = html.size();
+		auto it = tag.globalMatch(html, open + 1);
+		while (it.hasNext()) {
+			const auto m = it.next();
+			depth += m.captured(1).isEmpty() ? 1 : -1;
+			if (depth == 0) {
+				end = m.capturedStart();
+				break;
+			}
+		}
+		auto part = html.mid(open + 1, end - open - 1);
+		// Шапка (авторы, заголовок, «Read More») лежит внутри контейнера отдельными блоками.
+		static const auto excluded = QString::fromLatin1("data-exclude-from-selection=\"true\"");
+		while (true) {
+			const auto skip = part.indexOf(excluded);
+			if (skip < 0) {
+				break;
+			}
+			const auto start = part.lastIndexOf(u"<div"_q, skip);
+			if (start < 0) {
+				break;
+			}
+			auto level = 0;
+			auto stop = part.size();
+			auto blocks = tag.globalMatch(part, start);
+			while (blocks.hasNext()) {
+				const auto m = blocks.next();
+				level += m.captured(1).isEmpty() ? 1 : -1;
+				if (level == 0) {
+					stop = m.capturedEnd();
+					break;
+				}
+			}
+			part.remove(start, stop - start);
+		}
+		// Перенос строки в HTML считается пробелом, поэтому ставим метку и заменяем после разбора.
+		part.replace(QRegularExpression(uR"(<br\s*/?>)"_q), u"@@NL@@"_q);
+		auto plain = QTextDocumentFragment::fromHtml(part).toPlainText();
+		plain.replace(u"@@NL@@"_q, u"\n"_q);
+		result += plain + u"\n"_q;
+		from = end;
+	}
+	return result;
+}
+
+void RequestGenius(
+		const SplitResult &split,
+		const QString &artist,
+		Fn<void(Lyrics)> done) {
+	const auto name = split.trackName;
+	if (name.size() < 2 || (split.artistName.isEmpty() && artist.isEmpty())) {
+		done({});
+		return;
+	}
+	const auto search = u"https://genius.com/api/search/multi?q="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(split.artistName + u" "_q + name));
+	auto request = QNetworkRequest(QUrl(search));
+	request.setRawHeader("User-Agent", "mokaGram");
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	LimitReply(reply, kMaxTextBytes);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		auto page = QString();
+		if (reply->error() == QNetworkReply::NoError) {
+			const auto sections = QJsonDocument::fromJson(reply->readAll())
+				.object().value("response").toObject().value("sections").toArray();
+			const auto matches = [&](const QString &text, const QString &wanted) {
+				const auto a = text.toLower();
+				const auto b = wanted.toLower();
+				return !b.isEmpty() && (a.contains(b) || b.contains(a));
+			};
+			for (const auto &section : sections) {
+				if (section.toObject().value("type").toString() != u"song"_q) {
+					continue;
+				}
+				for (const auto &hit : section.toObject().value("hits").toArray()) {
+					const auto result = hit.toObject().value("result").toObject();
+					const auto title = WithoutBrackets(
+						result.value("title").toString());
+					const auto performer = result.value("primary_artist").toObject()
+						.value("name").toString();
+					if (title.compare(name, Qt::CaseInsensitive) == 0
+						&& (matches(performer, split.artistName)
+							|| matches(performer, artist))) {
+						page = result.value("url").toString();
+						break;
+					}
+				}
+				break;
+			}
+		}
+		if (page.isEmpty()) {
+			done({});
+			return;
+		}
+		// Ссылка на страницу пришла из ответа поиска: проверяем перед загрузкой.
+		if (!SafeMediaUrl(QUrl(page))) {
+			done({});
+			return;
+		}
+		auto pageRequest = QNetworkRequest(QUrl(page));
+		pageRequest.setRawHeader("User-Agent", "mokaGram");
+		pageRequest.setTransferTimeout(15000);
+		const auto pageReply = Net().get(pageRequest);
+		LimitReply(pageReply, kMaxTextBytes);
+		QObject::connect(pageReply, &QNetworkReply::finished, [=] {
+			pageReply->deleteLater();
+			if (pageReply->error() != QNetworkReply::NoError) {
+				done({});
+				return;
+			}
+			auto text = GeniusText(QString::fromUtf8(pageReply->readAll()));
+			static const auto section = QRegularExpression(uR"(^\s*\[[^\]]*\]\s*$)"_q);
+			auto lines = QStringList();
+			for (const auto &line : text.split('\n')) {
+				if (!section.match(line).hasMatch()) {
+					lines.push_back(line.trimmed());
+				}
+			}
+			text = lines.join('\n').trimmed();
+			text.replace(QRegularExpression(uR"(\n{3,})"_q), u"\n\n"_q);
+			done(text.isEmpty() ? Lyrics() : ParsePlain(text));
+		});
+	});
+}
+
+std::map<QString, QString> &ArtworkUrls() {
+	static auto result = std::map<QString, QString>();
+	return result;
+}
+
+void LoadArtwork(const QString &url, Fn<void(QImage)> done) {
+	if (url.isEmpty()) {
+		done(QImage());
+		return;
+	}
+	// Ссылка пришла из ответа каталога: проверяем перед загрузкой.
+	if (!SafeMediaUrl(QUrl(url))) {
+		done(QImage());
+		return;
+	}
+	auto request = QNetworkRequest(QUrl(url));
+	request.setRawHeader("User-Agent", "Mozilla/5.0");
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	LimitReply(reply, kMaxArtworkBytes);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		if (reply->error() != QNetworkReply::NoError) {
+			done(QImage());
+			return;
+		}
+		// Большой JPEG декодируется заметное время: не на главном потоке.
+		crl::async([=, bytes = reply->readAll()] {
+			auto image = QImage::fromData(bytes);
+			crl::on_main([=, image = std::move(image)]() mutable {
+				done(std::move(image));
+			});
+		});
+	});
+}
+
+void SearchDeezer(
+		const SplitResult &wanted,
+		qint64 durationMs,
+		Fn<void(QString)> done) {
+	const auto query = u"artist:\"%1\" track:\"%2\""_q
+		.arg(wanted.artistName, wanted.trackName);
+	auto request = QNetworkRequest(QUrl(u"https://api.deezer.com/search?limit=10&q="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(query))));
+	request.setRawHeader("User-Agent", "Mozilla/5.0");
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	LimitReply(reply, kMaxTextBytes);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		const auto doc = QJsonDocument::fromJson(reply->readAll());
+		for (const auto &value : doc.object().value("data").toArray()) {
+			const auto item = value.toObject();
+			const auto cover = item.value("album").toObject()
+				.value("cover_xl").toString();
+			if (!cover.isEmpty() && SameTrack(
+					wanted,
+					durationMs,
+					item.value("title").toString(),
+					item.value("artist").toObject().value("name").toString(),
+					qint64(item.value("duration").toDouble() * 1000.))) {
+				done(cover);
+				return;
+			}
+		}
+		done(QString());
+	});
+}
+
+void SearchArtwork(
+		const SplitResult &wanted,
+		qint64 durationMs,
+		Fn<void(QString)> done) {
+	auto request = QNetworkRequest(QUrl(
+		u"https://itunes.apple.com/search?media=music&entity=song&limit=15&term="_q
+		+ QString::fromLatin1(QUrl::toPercentEncoding(
+			wanted.artistName + u" "_q + wanted.trackName))));
+	request.setRawHeader("User-Agent", "Mozilla/5.0");
+	request.setTransferTimeout(15000);
+	const auto reply = Net().get(request);
+	LimitReply(reply, kMaxTextBytes);
+	QObject::connect(reply, &QNetworkReply::finished, [=] {
+		reply->deleteLater();
+		const auto doc = QJsonDocument::fromJson(reply->readAll());
+		for (const auto &value : doc.object().value("results").toArray()) {
+			const auto item = value.toObject();
+			auto artwork = item.value("artworkUrl100").toString();
+			if (!artwork.isEmpty() && SameTrack(
+					wanted,
+					durationMs,
+					item.value("trackName").toString(),
+					item.value("artistName").toString(),
+					qint64(item.value("trackTimeMillis").toDouble()))) {
+				artwork.replace(u"100x100bb"_q, u"1000x1000bb"_q);
+				done(artwork);
+				return;
+			}
+		}
+		SearchDeezer(wanted, durationMs, done);
+	});
+}
+
+} // namespace
+
+void FetchLyrics(
+		const QString &cacheKey,
+		const QString &title,
+		const QString &artist,
+		qint64 durationMs,
+		Fn<void(Lyrics)> done) {
+	auto &cache = Cache();
+	if (const auto i = cache.find(cacheKey); i != cache.end()) {
+		done(i->second);
+		return;
+	}
+	auto &pending = Pending();
+	if (const auto i = pending.find(cacheKey); i != pending.end()) {
+		i->second.push_back(std::move(done));
+		return;
+	}
+	pending[cacheKey].push_back(std::move(done));
+	const auto split = SplitName(title, artist);
+	const auto clean = split.clean;
+	const auto trackName = split.trackName;
+	const auto artistName = split.artistName;
+	const auto finish = [=](Lyrics result) {
+		if (result.found) {
+			auto &cache = Cache();
+			if (cache.size() >= 64) {
+				cache.erase(cache.begin());
+			}
+			cache[cacheKey] = result;
+		}
+		auto &pending = Pending();
+		const auto i = pending.find(cacheKey);
+		if (i == pending.end()) {
+			return;
+		}
+		const auto waiting = std::move(i->second);
+		pending.erase(i);
+		for (const auto &callback : waiting) {
+			callback(result);
+		}
+	};
+	auto first = QUrlQuery();
+	first.addQueryItem(u"track_name"_q, trackName);
+	first.addQueryItem(u"artist_name"_q, artistName);
+	Request(first, durationMs, [=](Lyrics result) {
+		if (result.found) {
+			finish(std::move(result));
+			return;
+		}
+		if (result.unavailable) {
+			RequestFallback(trackName, artistName, durationMs, finish, true);
+			return;
+		}
+		auto second = QUrlQuery();
+		second.addQueryItem(u"q"_q, artistName + u" "_q + trackName);
+		Request(second, durationMs, [=](Lyrics result) {
+			if (result.found) {
+				finish(std::move(result));
+				return;
+			}
+			if (result.unavailable) {
+				RequestFallback(trackName, artistName, durationMs, finish, true);
+				return;
+			}
+			if (artistName == artist) {
+				RequestFallback(trackName, artistName, durationMs, [=](Lyrics result) {
+					if (result.found) {
+						finish(std::move(result));
+					} else {
+						RequestLastResort(split, durationMs, [=](Lyrics result) {
+							if (result.found) {
+								finish(std::move(result));
+							} else {
+								RequestGenius(split, artist, finish);
+							}
+						});
+					}
+				});
+				return;
+			}
+			auto third = QUrlQuery();
+			third.addQueryItem(u"q"_q, clean);
+			Request(third, durationMs, [=](Lyrics result) {
+				if (result.found) {
+					finish(std::move(result));
+					return;
+				}
+				RequestFallback(trackName, artistName, durationMs, [=](Lyrics result) {
+					if (result.found) {
+						finish(std::move(result));
+					} else {
+						RequestLastResort(split, durationMs, [=](Lyrics result) {
+							if (result.found) {
+								finish(std::move(result));
+							} else {
+								RequestGenius(split, artist, finish);
+							}
+					});
+					}
+				}, result.unavailable);
+			});
+		});
+	});
+}
+
+void FetchArtwork(
+		const QString &cacheKey,
+		const QString &title,
+		const QString &artist,
+		qint64 durationMs,
+		Fn<void(QImage)> done) {
+	auto &urls = ArtworkUrls();
+	if (const auto i = urls.find(cacheKey); i != urls.end()) {
+		LoadArtwork(i->second, done);
+		return;
+	}
+	const auto wanted = SplitName(title, artist);
+	if (wanted.trackName.isEmpty() || wanted.artistName.isEmpty()) {
+		done(QImage());
+		return;
+	}
+	SearchArtwork(wanted, durationMs, [=](QString url) {
+		if (!url.isEmpty()) {
+			auto &urls = ArtworkUrls();
+			if (urls.size() >= 128) {
+				urls.erase(urls.begin());
+			}
+			urls[cacheKey] = url;
+		}
+		LoadArtwork(url, done);
+	});
+}
+
+} // namespace Mokagram::Music

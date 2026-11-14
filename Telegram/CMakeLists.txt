@@ -88,6 +88,24 @@ PRIVATE
     mokagram/effects/mokagram_effects.h
     mokagram/lang/mokagram_lang.cpp
     mokagram/lang/mokagram_lang.h
+    mokagram/music/mokagram_island.cpp
+    mokagram/music/mokagram_island.h
+    mokagram/music/mokagram_island_glyphs.h
+    mokagram/music/mokagram_lyrics.cpp
+    mokagram/music/mokagram_lyrics.h
+    mokagram/music/mokagram_motion.cpp
+    mokagram/music/mokagram_motion.h
+    mokagram/music/mokagram_motion_protocol.cpp
+    mokagram/music/mokagram_music_canvas.cpp
+    mokagram/music/mokagram_music_canvas.h
+    mokagram/music/mokagram_music_library.cpp
+    mokagram/music/mokagram_music_library.h
+    mokagram/music/mokagram_music_ui.cpp
+    mokagram/music/mokagram_music_ui.h
+    mokagram/music/mokagram_soundcloud.cpp
+    mokagram/music/mokagram_soundcloud.h
+    mokagram/music/mokagram_soundcloud_login.cpp
+    mokagram/music/mokagram_soundcloud_login.h
     mokagram/plugins/mokagram_plugin_api.cpp
     mokagram/plugins/mokagram_plugin_api.h
     mokagram/plugins/mokagram_plugin_install.cpp
