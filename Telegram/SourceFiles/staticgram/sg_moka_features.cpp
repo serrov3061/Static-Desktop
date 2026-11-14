@@ -17,7 +17,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/layers/generic_box.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
-#include "ui/widgets/fields/number_input.h"
+#include "ui/widgets/fields/input_field.h"
+#include "lang/lang_keys.h"
 #include "ui/widgets/labels.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
@@ -243,12 +244,12 @@ void IntBox(not_null<Ui::GenericBox*> box, const S::Entry &entry) {
 	const auto max = entry.maxValue;
 	StaticGram::BoxParts::SetupBox(box);
 	box->setTitle(rpl::single(entry.title));
-	const auto input = box->addRow(object_ptr<Ui::NumberInput>(
+	const auto input = box->addRow(object_ptr<Ui::InputField>(
 		box,
 		st::defaultInputField,
 		rpl::single(u"%1 - %2"_q.arg(min).arg(max)),
-		QString::number(S::Int(key)),
-		std::max(QString::number(max).size(), qsizetype(1))));
+		QString::number(S::Int(key))));
+	input->setMaxLength(QString::number(max).size());
 	box->setFocusCallback([=] { input->setFocusFast(); });
 	const auto save = [=] {
 		auto ok = false;

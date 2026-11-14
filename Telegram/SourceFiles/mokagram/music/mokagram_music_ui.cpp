@@ -18,6 +18,9 @@
 #include "media/clip/media_clip_reader.h"
 #include "styles/style_mokagram_motion.h"
 #include "mokagram/settings/mokagram_settings.h"
+#include "mokagram/settings/mokagram_row_icons.h"
+#include "data/data_file_origin.h"
+#include "ui/chat/message_bubble.h"
 #include <QtGui/QClipboard>
 #include <QtGui/QDesktopServices>
 #include <QtCore/QUrl>
@@ -6087,7 +6090,6 @@ public:
 	, _controller(controller)
 	, _anchor(anchor)
 	, _view(Ui::CreateChild<LyricsView>(this)) {
-		Settings::PreloadRowIcons(&controller->session());
 		_view->setCoverTint(Mokagram::Settings::Bool(u"lyrics.plasma"_q));
 		_close = Mokagram::Plugins::MakeHeaderButton(this, true, [] {
 			Mokagram::Settings::SetBool(u"lyrics.enabled"_q, false);
@@ -9662,7 +9664,6 @@ void AttachCommentsToPlayer(
 		not_null<Ui::RpWidget*> anchor,
 		bool compactTimeline,
 		Fn<bool()> available) {
-	Settings::PreloadRowIcons(&controller->session());
 	const auto button = Ui::CreateChild<TimedComments>(parent);
 	const auto refresh = [=] {
 		const auto track = PlayingTrack();
