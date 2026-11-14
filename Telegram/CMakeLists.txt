@@ -2492,6 +2492,8 @@ PRIVATE
     staticgram/sg_domains.h
     staticgram/sg_proxies.cpp
     staticgram/sg_proxies.h
+    staticgram/sg_tag_colors.cpp
+    staticgram/sg_tag_colors.h
     staticgram/sg_profile_gift_bubbles.cpp
     staticgram/sg_profile_gift_bubbles.h
     # p-misc end

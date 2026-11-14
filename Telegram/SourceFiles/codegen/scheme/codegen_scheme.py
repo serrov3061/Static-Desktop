@@ -60,6 +60,7 @@ generate({
     'gramwallet.balance#08f07d41',
     'gramwallet.result#ff0a2275',
     'sgcard.sticker#ae3e8045',
+    'sgtags.tagColors#5d1ebc4d',
     'sgcard.inputSticker#44d6c962',
     'sgcard.card#70632282',
     'sgcard.cards#81f8a95e',

@@ -12,6 +12,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_chat.h"
 #include "data/data_user.h"
 #include "ui/unread_badge.h"
+#include "staticgram/sg_tag_colors.h"
+#include "history/view/history_view_message.h"
 #include "lang/lang_keys.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/painter.h"
@@ -358,11 +360,26 @@ void MemberListRow::paintTag(
 	const auto x = geometry.x();
 	const auto y = geometry.y();
 	const auto &pad = st::memberTagPillPadding;
+	// StaticGram: owner purple, admin red, bought tag green, label gray,
+	// or a color picked via sgtags.*.
+	const auto tagColor = [&] {
+		using HistoryView::BadgeRole;
+		const auto role = (_type.rights == Rights::Creator)
+			? BadgeRole::Creator
+			: (_type.rights == Rights::Admin)
+			? BadgeRole::Admin
+			: BadgeRole::User;
+		if (_type.group && user()) {
+			return StaticGram::TagColors::Resolve(
+				_type.group,
+				user(),
+				role);
+		}
+		return StaticGram::TagColors::DefaultColor(role, false);
+	}();
 	switch (_tagMode) {
 	case TagMode::AdminPill: {
-		const auto nameColor = (_type.rights == Rights::Creator)
-			? st::rankOwnerFg->c
-			: st::rankAdminFg->c;
+		const auto nameColor = tagColor;
 		const auto h = pillHeight();
 		const auto cw = pad.left() + _tagTextWidth + pad.right();
 		const auto w = std::max(cw, h);
@@ -384,12 +401,12 @@ void MemberListRow::paintTag(
 			const auto cw = pad.left() + _tagTextWidth + pad.right();
 			const auto w = std::max(cw, h);
 			if (over) {
-				auto bgColor = st::rankUserFg->c;
+				auto bgColor = tagColor;
 				bgColor.setAlphaF(0.12);
 				paintPill(p, x, y, w, bgColor);
 			}
 			if (_tagRipple) {
-				auto rippleColor = st::rankUserFg->c;
+				auto rippleColor = tagColor;
 				rippleColor.setAlphaF(0.12);
 				_tagRipple->paint(
 					p, x, y, outerWidth, &rippleColor);
@@ -398,7 +415,7 @@ void MemberListRow::paintTag(
 				}
 			}
 			p.setFont(st::normalFont);
-			p.setPen(st::rankUserFg);
+			p.setPen(tagColor);
 			p.drawTextLeft(
 				x + (w - _tagTextWidth) / 2,
 				y + pad.top(),
@@ -407,7 +424,7 @@ void MemberListRow::paintTag(
 				_tagTextWidth);
 		} else {
 			p.setFont(st::normalFont);
-			p.setPen(st::rankUserFg);
+			p.setPen(tagColor);
 			p.drawTextLeft(
 				x, y, outerWidth, _tagText, _tagTextWidth);
 		}

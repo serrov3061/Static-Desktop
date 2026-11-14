@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_participants.h"
 #include "boxes/peers/edit_participant_box.h"
 #include "boxes/peers/edit_tag_control.h"
+#include "staticgram/sg_tag_colors.h"
 #include "boxes/peers/add_participants_box.h"
 #include "boxes/peers/prepare_short_info_box.h" // PrepareShortInfoBox
 #include "boxes/peers/edit_members_visible.h"
@@ -1513,6 +1514,18 @@ void ParticipantsBoxController::prepare() {
 	delegate()->peerListSetSearchMode(PeerListSearchMode::Enabled);
 	delegate()->peerListSetTitle(std::move(title));
 	setDescriptionText(tr::lng_contacts_loading(tr::now));
+	if (_peer->isMegagroup()
+		&& (_role == Role::Profile
+			|| _role == Role::Members
+			|| _role == Role::Admins)) {
+		// StaticGram: member tag colors (sgtags.*), repaint on change.
+		StaticGram::TagColors::Request(_peer);
+		StaticGram::TagColors::Changes(
+			_peer
+		) | rpl::on_next([=] {
+			refreshRows();
+		}, lifetime());
+	}
 	setSearchNoResultsText(tr::lng_blocked_list_not_found(tr::now));
 
 	if (_stories) {
@@ -2483,6 +2496,7 @@ auto ParticipantsBoxController::computeType(
 	auto result = Type{
 		.chatStyle = _chatStyle.get(),
 		.circleCache = &_pillCircleCache,
+		.group = _peer,
 	};
 	result.rights = (user && _additional.isCreator(user))
 		? Rights::Creator
@@ -2999,6 +3013,87 @@ void ParticipantsBoxSearchController::searchDone(
 	delegate()->peerListSearchRefreshRows();
 }
 
+namespace {
+
+// StaticGram: member tag color picker (sgtags.*), a row of swatches where
+// the first one means "automatic" (the default color of the role).
+class TagColorPicker final : public Ui::RpWidget {
+public:
+	TagColorPicker(QWidget *parent, QColor selected, QColor automatic)
+	: RpWidget(parent)
+	, _selected(selected)
+	, _automatic(automatic) {
+		resize(width(), kSwatch + 2 * kPad);
+		setCursor(style::cur_pointer);
+	}
+
+	[[nodiscard]] QColor selected() const {
+		return _selected;
+	}
+
+protected:
+	void paintEvent(QPaintEvent *e) override {
+		auto p = QPainter(this);
+		auto hq = PainterHighQualityEnabler(p);
+		const auto &palette = StaticGram::TagColors::Palette();
+		for (auto i = 0, count = int(palette.size()) + 1; i != count; ++i) {
+			const auto rect = swatchRect(i);
+			const auto color = i ? palette[i - 1] : _automatic;
+			const auto on = i
+				? (_selected.isValid() && _selected.rgb() == color.rgb())
+				: !_selected.isValid();
+			p.setPen(Qt::NoPen);
+			p.setBrush(color);
+			p.drawEllipse(rect.marginsRemoved(
+				QMargins(kPad, kPad, kPad, kPad)));
+			if (!i) {
+				// Half gray mark: "auto".
+				p.setBrush(st::rankUserFg);
+				p.drawPie(
+					rect.marginsRemoved(QMargins(kPad, kPad, kPad, kPad)),
+					45 * 16,
+					180 * 16);
+			}
+			if (on) {
+				p.setBrush(Qt::NoBrush);
+				p.setPen(QPen(st::windowFg->c, 2));
+				p.drawEllipse(rect.marginsRemoved(QMargins(1, 1, 1, 1)));
+			}
+		}
+	}
+
+	void mousePressEvent(QMouseEvent *e) override {
+		const auto count = int(StaticGram::TagColors::Palette().size()) + 1;
+		for (auto i = 0; i != count; ++i) {
+			if (swatchRect(i).contains(e->pos())) {
+				_selected = i
+					? StaticGram::TagColors::Palette()[i - 1]
+					: QColor();
+				update();
+				return;
+			}
+		}
+	}
+
+private:
+	static constexpr auto kSwatch = 28;
+	static constexpr auto kPad = 3;
+
+	[[nodiscard]] QRect swatchRect(int index) const {
+		const auto count = int(StaticGram::TagColors::Palette().size()) + 1;
+		const auto outer = kSwatch + 2 * kPad;
+		const auto total = count * outer;
+		const auto left = std::max((width() - total) / 2, 0);
+		return QRect(left + index * outer, 0, outer, outer);
+	}
+
+	QColor _selected;
+	QColor _automatic;
+
+};
+
+} // namespace
+
 void EditCustomRankBox(
 		not_null<Ui::GenericBox*> box,
 		std::shared_ptr<Ui::Show> show,
@@ -3023,6 +3118,15 @@ void EditCustomRankBox(
 			currentRank,
 			role),
 		style::margins());
+	const auto picker = peer->isMegagroup()
+		? box->addRow(
+			object_ptr<TagColorPicker>(
+				box,
+				StaticGram::TagColors::Picked(peer, user),
+				StaticGram::TagColors::DefaultColor(role, false)),
+			st::boxRowPadding)
+		: nullptr;
+	const auto initialColor = picker ? picker->selected() : QColor();
 	Ui::AddSkip(box->verticalLayout());
 	Ui::AddDividerText(
 		box->verticalLayout(),
@@ -3042,12 +3146,31 @@ void EditCustomRankBox(
 		}
 		state->saving = true;
 		const auto rank = control->currentRank();
+		const auto color = picker ? picker->selected() : QColor();
+		const auto colorChanged = picker
+			&& ((color.isValid() != initialColor.isValid())
+				|| (color.isValid() && color.rgb() != initialColor.rgb()));
+		if (colorChanged && rank == currentRank) {
+			// StaticGram: only the color changed, the tag stays.
+			StaticGram::TagColors::Set(peer, user, color, crl::guard(box, [=](
+					bool ok) {
+				if (ok) {
+					close();
+				} else {
+					state->saving = false;
+				}
+			}));
+			return;
+		}
 		SaveMemberRank(
 			show,
 			peer,
 			user,
 			rank,
 			[=] {
+				if (colorChanged) {
+					StaticGram::TagColors::Set(peer, user, color, nullptr);
+				}
 				if (onSaved) {
 					onSaved(rank);
 				}

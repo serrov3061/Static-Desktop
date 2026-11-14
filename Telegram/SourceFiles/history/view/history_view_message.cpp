@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_message.h"
 
 #include "staticgram/sg_badges.h"
+#include "staticgram/sg_tag_colors.h"
 #include "staticgram/sg_settings_boxes.h"
 
 #include "api/api_suggest_post.h"
@@ -1186,6 +1187,9 @@ void Message::refreshRightBadge() {
 	};
 	const auto boosts = item->boostsApplied();
 	const auto needBadge = !tagText.empty() || boosts;
+	if (needBadge) {
+		StaticGram::TagColors::Request(item->history()->peer);
+	}
 	if (!needBadge) {
 		if (Has<RightBadge>()) {
 			RemoveComponents(RightBadge::Bit());
@@ -2716,11 +2720,17 @@ void Message::paintFromName(
 	if (badgeWidth) {
 		p.setPen(stm->msgDateFg);
 		if (const auto badge = Get<RightBadge>()) {
-			const auto badgeColor = (badge->role == BadgeRole::Creator)
-				? st::rankOwnerFg->c
-				: (badge->role == BadgeRole::Admin)
-				? st::rankAdminFg->c
-				: st::rankUserFg->c;
+			const auto badgeColor = [&] {
+				// StaticGram: owner purple, admin red, bought tag green,
+				// other labels gray, or a color picked via sgtags.*
+				const auto from = data()->author()->asUser();
+				return from
+					? StaticGram::TagColors::Resolve(
+						data()->history()->peer,
+						from,
+						badge->role)
+					: st::rankUserFg->c;
+			}();
 			const auto badgeLeft = trect.left()
 				+ trect.width()
 				- badge->width;
@@ -2785,7 +2795,7 @@ void Message::paintFromName(
 						badge->ripple.reset();
 					}
 				}
-				p.setPen(st::rankUserFg);
+				p.setPen(badgeColor);
 				badge->tag.draw(p, {
 					.position = QPoint(badgeLeft, trect.top()),
 					.availableWidth = badge->tag.maxWidth(),

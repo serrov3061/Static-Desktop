@@ -2409,6 +2409,9 @@ sgcard.card#70632282 flags:# kind:int background:flags.0?StarGift stickers:Vecto
 sgcard.cards#81f8a95e flags:# purchased:flags.0?true cards:Vector<sgcard.Card> users:Vector<User> = sgcard.Cards;
 sgcard.starsResult#704a54d8 balance:long replayed:Bool = sgcard.StarsResult;
 sgcard.messageActionStarsTransfer#ff0e4d1d flags:# outgoing:flags.1?true stars:long transaction_id:string comment:flags.0?string = MessageAction;
+// StaticGram member tag colors (gramsrv third_party/td/_schema sgtags.tl).
+sgtags.tagColor#2401dfec user_id:long color:int = sgtags.TagColor;
+sgtags.tagColors#5d1ebc4d colors:Vector<sgtags.TagColor> = sgtags.TagColors;
 // StaticGram private .ton domains (gramsrv third_party/td/_schema tondns.tl).
 tondns.domainCheck#047ed8d9 name:string available:Bool price:long = tondns.DomainCheck;
 tondns.domain#dfce26f1 flags:# primary:flags.0?true minted:flags.1?true name:string item_address:string owner_address:string wallet_address:string price:long purchased_at:int = tondns.Domain;
@@ -3327,6 +3330,8 @@ gramwallet.sendToAddress#f4fd69e6 flags:# address:string amount:long comment:str
 sgcard.getCards#a4ea727d user_id:InputUser = sgcard.Cards;
 sgcard.saveCard#68500e80 flags:# kind:int background_slug:flags.0?string stickers:Vector<sgcard.InputSticker> = sgcard.Card;
 sgcard.sendStars#a9341b5a user_id:InputUser amount:long comment:string request_key:string = sgcard.StarsResult;
+sgtags.getTagColors#0a30a2bd peer:InputPeer = sgtags.TagColors;
+sgtags.setTagColor#d31e06b5 flags:# peer:InputPeer participant:InputPeer color:flags.0?int = Bool;
 tondns.checkDomain#ce407588 name:string = tondns.DomainCheck;
 tondns.buyDomain#dfde8b00 name:string price:long request_key:string = tondns.BuyResult;
 tondns.getMyDomains#b1ba10e8 = tondns.Domains;

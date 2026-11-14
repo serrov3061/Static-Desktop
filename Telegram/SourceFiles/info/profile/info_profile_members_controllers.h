@@ -41,6 +41,7 @@ public:
 		bool canAddTag = false;
 		bool canEditTag = false;
 		bool canRemove = false;
+		PeerData *group = nullptr;
 	};
 
 	static constexpr auto kTagElement = 1;
