@@ -921,6 +921,16 @@ void BuildPrivacySection(SectionBuilder &builder) {
 	});
 
 	builder.addPrivacyButton({
+		.id = u"privacy/money"_q,
+		.title = tr::lng_settings_money_privacy(),
+		.key = Key::MoneyTransfers,
+		.controllerFactory = [] {
+			return std::make_unique<MoneyTransfersPrivacyController>();
+		},
+		.keywords = { u"money"_q, u"gram"_q, u"stars"_q },
+	});
+
+	builder.addPrivacyButton({
 		.id = u"privacy/bio"_q,
 		.title = tr::lng_settings_bio_privacy(),
 		.key = Key::About,
@@ -951,6 +961,7 @@ void BuildPrivacySection(SectionBuilder &builder) {
 	});
 
 	session->api().userPrivacy().reload(Privacy::Key::AddedByPhone);
+	session->api().userPrivacy().reload(Privacy::Key::MoneyTransfers);
 
 	builder.addSkip(st::settingsPrivacySecurityPadding);
 	builder.addDivider();

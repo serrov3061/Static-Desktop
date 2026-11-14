@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/unixtime.h"
 #include "core/click_handler_types.h"
+#include "data/data_credits.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/view/media/history_view_media_generic.h"
@@ -329,21 +330,30 @@ void AddDetailsRow(
 	}
 }
 
-void SgTransferDetailsBox(
+// Everything the receipt box shows, filled from a chat card
+// (HistoryServiceGramTransfer) or from a money history row.
+struct SgReceipt {
+	bool stars = false;
+	bool outgoing = false;
+	bool grant = false;
+	bool prize = false;
+	int64 amount = 0;
+	QString name;
+	QDateTime date;
+	QString address;
+	QString id;
+	QString comment;
+};
+
+void SgReceiptBox(
 		not_null<Ui::GenericBox*> box,
 		std::shared_ptr<Main::SessionShow> show,
-		not_null<HistoryItem*> item) {
+		const SgReceipt &data) {
 	using namespace StaticGram::BoxParts;
-	const auto transfer = item->Get<HistoryServiceGramTransfer>();
-	Assert(transfer != nullptr);
-
-	const auto stars = transfer->sgStars;
-	const auto outgoing = TransferOutgoing(item, transfer);
-	const auto rawId = transfer->transactionId;
-	const auto grant = IsSgGrantTransactionId(rawId);
-	const auto id = grant
-		? rawId.mid(QString::fromLatin1(kGrantPrefix).size())
-		: rawId;
+	const auto stars = data.stars;
+	const auto outgoing = data.outgoing;
+	const auto grant = data.grant;
+	const auto id = data.id;
 
 	SetupBox(box);
 	box->setWidth(st::boxWideWidth);
@@ -375,13 +385,13 @@ void SgTransferDetailsBox(
 		? tr::lng_sg_stars_amount(
 			tr::now,
 			lt_count_decimal,
-			std::abs(transfer->amount))
+			std::abs(data.amount))
 		: tr::lng_action_gram_transfer_amount(
 			tr::now,
 			lt_count,
-			std::abs(transfer->amount) / float64(Ui::kNanosInOne),
+			std::abs(data.amount) / float64(Ui::kNanosInOne),
 			lt_amount,
-			Ui::FormatTonAmount(std::abs(transfer->amount)).full);
+			Ui::FormatTonAmount(std::abs(data.amount)).full);
 	content->add(
 		object_ptr<Ui::FlatLabel>(
 			content,
@@ -392,7 +402,7 @@ void SgTransferDetailsBox(
 	content->add(
 		object_ptr<Ui::FlatLabel>(
 			content,
-			(transfer->sgPrize
+			(data.prize
 				? tr::lng_sg_transfer_title_prize()
 				: grant
 				? tr::lng_sg_transfer_title_grant()
@@ -414,17 +424,17 @@ void SgTransferDetailsBox(
 	AddDetailsRow(
 		card,
 		(outgoing ? tr::lng_sg_transfer_to() : tr::lng_sg_transfer_from()),
-		tr::marked(CounterpartyName(item, transfer)));
+		tr::marked(data.name));
 	AddDetailsRow(
 		card,
 		tr::lng_sg_transfer_date(),
-		tr::marked(langDateTimeFull(base::unixtime::parse(item->date()))));
-	if (!transfer->peerAddress.isEmpty()) {
+		tr::marked(langDateTimeFull(data.date)));
+	if (!data.address.isEmpty()) {
 		AddDetailsRow(
 			card,
 			tr::lng_sg_transfer_address(),
-			tr::link(transfer->peerAddress),
-			copyText(transfer->peerAddress));
+			tr::link(data.address),
+			copyText(data.address));
 	}
 	if (!id.isEmpty() && id != u"0"_q) {
 		AddDetailsRow(
@@ -433,16 +443,43 @@ void SgTransferDetailsBox(
 			tr::link(id),
 			copyText(id));
 	}
-	const auto comment = transfer->commentText();
-	if (!comment.isEmpty() && !transfer->commentEncrypted) {
+	if (!data.comment.isEmpty()) {
 		const auto commentCard = AddCard(content, 6, 6);
 		AddDetailsRow(
 			commentCard,
 			tr::lng_sg_transfer_comment(),
-			tr::marked(transfer->comment));
+			tr::marked(data.comment));
 	}
 
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+}
+
+void SgTransferDetailsBox(
+		not_null<Ui::GenericBox*> box,
+		std::shared_ptr<Main::SessionShow> show,
+		not_null<HistoryItem*> item) {
+	const auto transfer = item->Get<HistoryServiceGramTransfer>();
+	Assert(transfer != nullptr);
+
+	const auto rawId = transfer->transactionId;
+	const auto grant = IsSgGrantTransactionId(rawId);
+	const auto comment = transfer->commentText();
+	SgReceiptBox(box, show, {
+		.stars = transfer->sgStars,
+		.outgoing = TransferOutgoing(item, transfer),
+		.grant = grant,
+		.prize = transfer->sgPrize,
+		.amount = transfer->amount,
+		.name = CounterpartyName(item, transfer),
+		.date = base::unixtime::parse(item->date()),
+		.address = transfer->peerAddress,
+		.id = grant
+			? rawId.mid(QString::fromLatin1(kGrantPrefix).size())
+			: rawId,
+		.comment = (!comment.isEmpty() && !transfer->commentEncrypted)
+			? transfer->comment
+			: QString(),
+	});
 }
 
 } // namespace
@@ -492,6 +529,46 @@ void ShowSgTransferDetails(
 		return;
 	}
 	show->showBox(Box(SgTransferDetailsBox, show, item));
+}
+
+} // namespace HistoryView
+
+namespace HistoryView {
+
+bool IsSgStarsTransferEntry(const Data::CreditsHistoryEntry &entry) {
+	// gramsrv >= 07.11: a transfer is a non-gift row titled "Перевод"
+	// (the comment is the description); older servers sent a gift row
+	// titled "Stars gift" (Android SgGramReceipt.fromStarsTransferTransaction).
+	return !entry.credits.ton()
+		&& !entry.stargift
+		&& !entry.uniqueGift
+		&& (entry.peerType == Data::CreditsHistoryEntry::PeerType::Peer)
+		&& peerIsUser(PeerId(entry.barePeerId))
+		&& (entry.gift
+			? (entry.title == u"Stars gift"_q)
+			: (entry.title == u"Перевод"_q));
+}
+
+void ShowSgStarsTransferReceipt(
+		std::shared_ptr<Main::SessionShow> show,
+		not_null<PeerData*> self,
+		const Data::CreditsHistoryEntry &entry) {
+	const auto peer = self->owner().peer(PeerId(entry.barePeerId));
+	const auto amount = int64(std::abs(entry.credits.whole()));
+	auto comment = entry.description.text;
+	// The default description is "N Stars", not a comment.
+	if (comment == QString::number(amount) + u" Stars"_q) {
+		comment = QString();
+	}
+	show->showBox(Box(SgReceiptBox, show, SgReceipt{
+		.stars = true,
+		.outgoing = !entry.in,
+		.amount = amount,
+		.name = TextUtilities::SingleLine(peer->name()),
+		.date = entry.date,
+		.id = entry.id,
+		.comment = comment,
+	}));
 }
 
 } // namespace HistoryView

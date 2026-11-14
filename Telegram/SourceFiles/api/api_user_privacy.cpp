@@ -212,6 +212,7 @@ MTPInputPrivacyKey KeyToTL(UserPrivacy::Key key) {
 	case Key::GiftsAutoSave: return MTP_inputPrivacyKeyStarGiftsAutoSave();
 	case Key::NoPaidMessages: return MTP_inputPrivacyKeyNoPaidMessages();
 	case Key::SavedMusic: return MTP_inputPrivacyKeySavedMusic();
+	case Key::MoneyTransfers: break; // Own methods, see save() / reload().
 	}
 	Unexpected("Key in Api::UserPrivacy::KetToTL.");
 }
@@ -261,6 +262,10 @@ UserPrivacy::UserPrivacy(not_null<ApiWrap*> api)
 void UserPrivacy::save(
 		Key key,
 		const UserPrivacy::Rule &rule) {
+	if (key == Key::MoneyTransfers) {
+		saveMoneyTransfers(rule);
+		return;
+	}
 	const auto tlKey = KeyToTL(key);
 	const auto keyTypeId = tlKey.type();
 	const auto it = _privacySaveRequests.find(keyTypeId);
@@ -306,8 +311,48 @@ void UserPrivacy::apply(
 	}
 }
 
+void UserPrivacy::saveMoneyTransfers(const UserPrivacy::Rule &rule) {
+	// StaticGram: the key never travels in updatePrivacy / account.setPrivacy,
+	// the server keeps it behind sgcard.getMoneyPrivacy / setMoneyPrivacy.
+	const auto keyTypeId = mtpTypeId(mtpc_sgcard_setMoneyPrivacy);
+	const auto it = _privacySaveRequests.find(keyTypeId);
+	if (it != _privacySaveRequests.cend()) {
+		_api.request(it->second).cancel();
+		_privacySaveRequests.erase(it);
+	}
+	const auto requestId = _api.request(MTPsgcard_SetMoneyPrivacy(
+		RulesToTL(rule)
+	)).done([=](const MTPaccount_PrivacyRules &result) {
+		result.match([&](const MTPDaccount_privacyRules &data) {
+			_session->data().processUsers(data.vusers());
+			_session->data().processChats(data.vchats());
+			_privacySaveRequests.remove(keyTypeId);
+			pushPrivacy(Key::MoneyTransfers, data.vrules());
+		});
+	}).fail([=] {
+		_privacySaveRequests.remove(keyTypeId);
+	}).send();
+	_privacySaveRequests.emplace(keyTypeId, requestId);
+}
+
 void UserPrivacy::reload(Key key) {
 	if (_privacyRequestIds.contains(key)) {
+		return;
+	}
+	if (key == Key::MoneyTransfers) {
+		const auto requestId = _api.request(
+			MTPsgcard_GetMoneyPrivacy()
+		).done([=](const MTPaccount_PrivacyRules &result) {
+			_privacyRequestIds.erase(key);
+			result.match([&](const MTPDaccount_privacyRules &data) {
+				_session->data().processUsers(data.vusers());
+				_session->data().processChats(data.vchats());
+				pushPrivacy(key, data.vrules());
+			});
+		}).fail([=] {
+			_privacyRequestIds.erase(key);
+		}).send();
+		_privacyRequestIds.emplace(key, requestId);
 		return;
 	}
 	const auto requestId = _api.request(MTPaccount_GetPrivacy(

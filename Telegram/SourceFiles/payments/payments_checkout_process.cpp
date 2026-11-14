@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_cloud_password.h"
 #include "webview/webview_dialog.h"
+#include "staticgram/sg_money_api.h"
 #include "window/themes/window_theme.h"
 
 #include <QJsonDocument>
@@ -587,6 +588,11 @@ void CheckoutProcess::handleError(const Error &error) {
 			showToast({ "Error: " + id + ". Your card has not been billed." });
 		} else if (id == u"TMP_PASSWORD_INVALID"_q) {
 			requestPassword();
+		} else if (id == u"MONEY_TRANSFER_FORBIDDEN"_q
+			|| id.startsWith(u"STARS_TRANSFER_COMMENT_PRICE_"_q)
+			|| id.startsWith(u"GRAM_TRANSFER_COMMENT_PRICE_"_q)) {
+			// StaticGram: the recipient's money privacy / message price.
+			showToast({ StaticGram::Money::ErrorText(id) });
 		} else {
 			showToast({ "Error: " + id });
 		}

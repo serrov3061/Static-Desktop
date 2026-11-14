@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/session/session_show.h"
 #include "main/main_session.h"
 #include "payments/payments_checkout_process.h"
+#include "staticgram/sg_money_api.h"
 #include "payments/payments_form.h"
 #include "settings/settings_credits_graphics.h"
 #include "ui/boxes/confirm_box.h"
@@ -481,6 +482,11 @@ void SendCreditsBox(
 					Ui::InsufficientTonBox,
 					session,
 					TonFormAmount(form.get())));
+			} else if (id == u"MONEY_TRANSFER_FORBIDDEN"_q
+				|| id.startsWith(u"STARS_TRANSFER_COMMENT_PRICE_"_q)
+				|| id.startsWith(u"GRAM_TRANSFER_COMMENT_PRICE_"_q)) {
+				// StaticGram: the recipient's money privacy / message price.
+				show->showToast(StaticGram::Money::ErrorText(id));
 			} else {
 				show->showToast(id);
 			}

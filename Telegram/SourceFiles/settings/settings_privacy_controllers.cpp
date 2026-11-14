@@ -1851,4 +1851,43 @@ auto SavedMusicPrivacyController::exceptionsDescription() const
 	return tr::lng_edit_privacy_saved_music_exceptions();
 }
 
+UserPrivacy::Key MoneyTransfersPrivacyController::key() const {
+	return Key::MoneyTransfers;
+}
+
+rpl::producer<QString> MoneyTransfersPrivacyController::title() const {
+	return tr::lng_edit_privacy_money_title();
+}
+
+rpl::producer<QString> MoneyTransfersPrivacyController::optionsTitleKey() const {
+	return tr::lng_edit_privacy_money_header();
+}
+
+rpl::producer<QString> MoneyTransfersPrivacyController::exceptionButtonTextKey(
+		Exception exception) const {
+	switch (exception) {
+	case Exception::Always:
+		return tr::lng_edit_privacy_money_always_empty();
+	case Exception::Never:
+		return tr::lng_edit_privacy_money_never_empty();
+	}
+	Unexpected("Invalid exception value.");
+}
+
+rpl::producer<QString> MoneyTransfersPrivacyController::exceptionBoxTitle(
+		Exception exception) const {
+	switch (exception) {
+	case Exception::Always:
+		return tr::lng_edit_privacy_money_always_title();
+	case Exception::Never:
+		return tr::lng_edit_privacy_money_never_title();
+	}
+	Unexpected("Invalid exception value.");
+}
+
+auto MoneyTransfersPrivacyController::exceptionsDescription() const
+-> rpl::producer<QString> {
+	return tr::lng_edit_privacy_money_exceptions();
+}
+
 } // namespace Settings
