@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peers/edit_peer_usernames_list.h"
 
+#include "mokagram/streamer/mokagram_streamer.h"
+
 #include "api/api_filter_updates.h"
 #include "api/api_user_names.h"
 #include "apiwrap.h"
@@ -121,7 +123,11 @@ UsernamesList::Row::Row(
 		_menu->addAction(
 			tr::lng_group_invite_context_copy(tr::now),
 			[=] {
-				QGuiApplication::clipboard()->setText(link);
+				if (Mokagram::Streamer::CopyBlocked(Mokagram::Streamer::Field::Link)) {
+					return;
+				}
+				QGuiApplication::clipboard()->setText(
+					Mokagram::Streamer::ForCopy(Mokagram::Streamer::Field::Link, link));
 				show->showToast({
 					.text = {
 						tr::lng_create_channel_link_copied(tr::now),

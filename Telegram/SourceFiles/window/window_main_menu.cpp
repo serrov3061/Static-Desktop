@@ -83,6 +83,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_info.h"
 #include "styles/style_window_main_menu.h"
+#include "mokagram/streamer/mokagram_streamer.h"
+#include "mokagram/music/mokagram_music_ui.h"
 
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
@@ -371,6 +373,13 @@ MainMenu::MainMenu(
 	Ui::CreateChild<Ui::FlatLabel>(_footer.get(), st::mainMenuTelegramLabel))
 , _version(AddVersionLabel(_footer)) {
 	setProperty("moka-main-menu", true);
+
+	// Режим стримера: имя в шапке рисуется без rpl, сбрасываем кэш текста.
+	Mokagram::Streamer::Changed(
+	) | rpl::on_next([=] {
+		_nameVersion = 0;
+		update();
+	}, lifetime());
 
 	setupUserpicButton();
 	setupAccountsToggle();
@@ -788,6 +797,13 @@ void MainMenu::setupMenu() {
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
 		});
+		// mokaGram music (player, lyrics, SoundCloud), 14.11.2026.
+		addAction(
+			tr::lng_sg_music_title(),
+			{ &st::menuIconSoundOn }
+		)->setClickedCallback([=] {
+			Mokagram::Music::ShowMusicBox(controller);
+		});
 		// StaticGram: «Money» opens our GRAM / Stars panel, the upstream
 		// client-side wallet stays off (walletAvailable() is false).
 		const auto wallet = _menu->add(
@@ -1002,7 +1018,11 @@ void MainMenu::drawName(Painter &p) {
 		_nameVersion = user->nameVersion();
 		_name.setText(
 			st::semiboldTextStyle,
-			user->name(),
+			Mokagram::Streamer::Active(Mokagram::Streamer::Field::Name)
+				? Mokagram::Streamer::Mask(
+					Mokagram::Streamer::Field::Name,
+					user->name())
+				: user->name(),
 			Ui::NameTextOptions());
 		moveBadge();
 	}

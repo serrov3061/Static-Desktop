@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/player/media_player_instance.h"
 
+#include "mokagram/music/mokagram_music_ui.h"
+
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "data/data_changes.h"
@@ -806,6 +808,12 @@ bool Instance::previousAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
 
+	// mokaGram music: a SoundCloud queue track steps by that queue.
+	if (type == AudioMsgId::Type::Song
+		&& Mokagram::Music::UsesQueue(data->current)) {
+		return Mokagram::Music::PreviousAvailable();
+	}
+
 	if (trackInItem(data, -1)) {
 		return true;
 	} else if (!data->playlistIndex || !data->playlistSlice) {
@@ -824,6 +832,11 @@ bool Instance::previousAvailable(AudioMsgId::Type type) const {
 bool Instance::nextAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
+
+	if (type == AudioMsgId::Type::Song
+		&& Mokagram::Music::UsesQueue(data->current)) {
+		return Mokagram::Music::NextAvailable();
+	}
 
 	if (trackInItem(data, 1)) {
 		return true;
@@ -1247,6 +1260,11 @@ void Instance::resumeSongAfterVoice(bool force) {
 
 bool Instance::next(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
+		if (type == AudioMsgId::Type::Song
+			&& Mokagram::Music::UsesQueue(data->current)) {
+			Mokagram::Music::Step(1);
+			return true;
+		}
 		return moveInPlaylist(data, 1, false);
 	}
 	return false;
@@ -1254,6 +1272,11 @@ bool Instance::next(AudioMsgId::Type type) {
 
 bool Instance::previous(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
+		if (type == AudioMsgId::Type::Song
+			&& Mokagram::Music::UsesQueue(data->current)) {
+			Mokagram::Music::Step(-1);
+			return true;
+		}
 		return moveInPlaylist(data, -1, false);
 	}
 	return false;
@@ -1477,8 +1500,19 @@ void Instance::emitUpdate(AudioMsgId::Type type, CheckCallback check) {
 		}
 
 		auto finished = false;
+		// mokaGram music: the SoundCloud queue moves to the next track
+		// by itself, the stock playlist logic is not used for it.
+		const auto queueTrack = (type == AudioMsgId::Type::Song)
+			&& Mokagram::Music::UsesQueue(state.id);
 		_updatedNotifier.fire_copy({state});
-		if (data->isPlaying && state.state == State::StoppedAtEnd) {
+		if (queueTrack && data->current != state.id) {
+			return;
+		}
+		if (data->isPlaying
+			&& state.state == State::StoppedAtEnd
+			&& queueTrack) {
+			finished = IsStoppedAtEnd(getState(type).state);
+		} else if (data->isPlaying && state.state == State::StoppedAtEnd) {
 			if (repeat(data) == RepeatMode::One) {
 				play(data->current);
 			} else if (OptionDisableAutoplayNext.value()) {

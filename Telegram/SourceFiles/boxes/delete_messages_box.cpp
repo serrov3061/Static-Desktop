@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/layers/generic_box.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
+#include "mokagram/effects/mokagram_black_hole.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/labels.h"
@@ -600,7 +601,13 @@ void DeleteMessagesBox::deleteAndClear() {
 		invokeCallbackAndClose();
 
 		if (justClear) {
-			session->api().clearHistory(peer, revoke);
+			// mokaGram: an opened chat history goes into a black hole.
+			const auto clear = [=] {
+				session->api().clearHistory(peer, revoke);
+			};
+			if (!Mokagram::BlackHole::ClearHistory(peer, clear)) {
+				clear();
+			}
 		} else {
 			Core::App().closeChatFromWindows(peer);
 			// Don't delete old history by default,

@@ -10,6 +10,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mokagram/effects/mokagram_effects.h"
 #include "mokagram/avatar/mokagram_avatar_shape.h"
 #include "mokagram/settings/mokagram_settings.h"
+#include "mokagram/perf/mokagram_perf.h"
+#include "mokagram/music/mokagram_music_ui.h"
+#include "staticgram/sg_moka_features.h"
 
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
@@ -329,6 +332,14 @@ void Application::run() {
 	Mokagram::Appearance::RegisterSettings();
 	Mokagram::Effects::RegisterSettings();
 	Mokagram::Avatar::RegisterSettings();
+	// StaticGram 14.11: brought back streamer mode and anti-lag.
+	StaticGram::MokaFeatures::RegisterSettings();
+	Mokagram::Perf::Start();
+#ifdef Q_OS_LINUX
+	// mokaGram music: control socket for the Omarchy bar player panel
+	// (tools/omarchy/ecronx.player), $XDG_RUNTIME_DIR/mokagram/ctl.sock.
+	Mokagram::Music::StartShellBridge();
+#endif // Q_OS_LINUX
 
 	style::SetCustomFont(settings().customFontFamily());
 	style::internal::StartFonts();
@@ -377,9 +388,10 @@ void Application::run() {
 
 	rpl::combine(
 		_batterySaving->value(),
-		settings().ignoreBatterySavingValue()
-	) | rpl::on_next([=](bool saving, bool ignore) {
-		PowerSaving::SetForceAll(saving && !ignore);
+		settings().ignoreBatterySavingValue(),
+		Mokagram::Perf::EconomyValue()
+	) | rpl::on_next([=](bool saving, bool ignore, bool economy) {
+		PowerSaving::SetForceAll((saving && !ignore) || economy);
 	}, _lifetime);
 
 	style::ShortAnimationPlaying(

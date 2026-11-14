@@ -6,17 +6,50 @@
 #include "mokagram/settings/mokagram_settings.h"
 
 #include "base/flat_map.h"
+#include "base/timer.h"
 #include "logs.h"
+#include "settings.h"
 
 #include <rpl/event_stream.h>
 #include <rpl/filter.h>
 #include <rpl/map.h>
 #include <rpl/then.h>
 
+#include <QtCore/QCoreApplication>
+#include <QtCore/QFile>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QSaveFile>
+
 
 namespace Mokagram::Settings {
 namespace {
 
+constexpr auto kSaveDelay = crl::time(300);
+
+// StaticGram: only the brought back mokaGram features keep their values,
+// in a file of our own, so a value left by an old mokaGram install can not
+// switch a removed feature on.
+[[nodiscard]] QString FilePath() {
+	return cWorkingDir() + u"tdata/sg_moka_settings.json"_q;
+}
+
+[[nodiscard]] bool Persistent(const QString &key) {
+	static const auto prefixes = {
+		u"streamer."_q,
+		u"lag."_q,
+		u"music."_q,
+		u"quote."_q,
+		u"player."_q,
+		u"lyrics."_q,
+	};
+	for (const auto &prefix : prefixes) {
+		if (key.startsWith(prefix)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 struct State {
 	std::vector<Entry> entries;
@@ -24,8 +57,10 @@ struct State {
 	// Явно заданные значения: отличия от умолчаний и неизвестные ключи.
 	base::flat_map<QString, QJsonValue> values;
 	rpl::event_stream<QString> changed;
+	base::Timer saveTimer;
 	bool dirty = false;
 	bool loaded = false;
+	bool quitHooked = false;
 };
 
 [[nodiscard]] State &Data() {
@@ -97,7 +132,11 @@ struct State {
 }
 
 void ScheduleSave() {
-	Data().dirty = true;
+	auto &data = Data();
+	data.dirty = true;
+	if (data.loaded && !data.saveTimer.isActive()) {
+		data.saveTimer.callOnce(kSaveDelay);
+	}
 }
 
 void Store(const QString &key, const QJsonValue &value) {
@@ -261,19 +300,79 @@ rpl::producer<QString> Changed() {
 	return Data().changed.events();
 }
 
-// StaticGram: the registry only serves the built-in design defaults now.
-// Nothing is read from or written to tdata/moka_settings.json, so a value
-// changed by an old mokaGram install can not switch a removed feature on.
 void Load() {
 	auto &data = Data();
+	if (!data.quitHooked) {
+		data.quitHooked = true;
+		data.saveTimer.setCallback([] { Save(); });
+		QObject::connect(
+			QCoreApplication::instance(),
+			&QCoreApplication::aboutToQuit,
+			[] { Save(); });
+	}
 	data.values.clear();
+	auto file = QFile(FilePath());
+	if (file.open(QIODevice::ReadOnly)) {
+		auto error = QJsonParseError();
+		const auto document = QJsonDocument::fromJson(
+			file.readAll(),
+			&error);
+		if (error.error != QJsonParseError::NoError
+			|| !document.isObject()) {
+			LOG(("[mokagram] Settings: sg_moka_settings.json is broken."));
+		} else {
+			const auto values = document.object().value(
+				u"values"_q).toObject();
+			for (auto i = values.begin(); i != values.end(); ++i) {
+				if (Persistent(i.key())) {
+					data.values[i.key()] = i.value();
+				}
+			}
+		}
+	}
+	for (const auto &entry : data.entries) {
+		const auto i = data.values.find(entry.key);
+		if (i == data.values.end()) {
+			continue;
+		}
+		const auto fixed = Normalize(entry, i->second);
+		if (!fixed || SameValue(*fixed, entry.defaultValue)) {
+			data.values.remove(entry.key);
+		} else {
+			i->second = *fixed;
+		}
+	}
 	data.loaded = true;
 	data.dirty = false;
 }
 
 void Save() {
 	auto &data = Data();
+	data.saveTimer.cancel();
+	if (!data.dirty || !data.loaded) {
+		return;
+	}
 	data.dirty = false;
+	auto values = QJsonObject();
+	for (const auto &[key, value] : data.values) {
+		if (Persistent(key)) {
+			values.insert(key, value);
+		}
+	}
+	auto root = QJsonObject();
+	root.insert(u"version"_q, 1);
+	root.insert(u"values"_q, values);
+	auto file = QSaveFile(FilePath());
+	if (!file.open(QIODevice::WriteOnly)) {
+		LOG(("[mokagram] Settings: cannot write sg_moka_settings.json."));
+		data.dirty = true;
+		return;
+	}
+	file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+	if (!file.commit()) {
+		LOG(("[mokagram] Settings: commit of sg_moka_settings.json failed."));
+		data.dirty = true;
+	}
 }
 
 QByteArray Export() {

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mainwidget.h"
 
+#include "mokagram/music/mokagram_island.h"
+
 #include "api/api_updates.h"
 #include "api/api_views.h"
 #include "data/components/scheduled_messages.h"
@@ -915,7 +917,19 @@ void MainWidget::handleAudioUpdate(const Media::Player::TrackState &state) {
 		const auto ttlSeconds = item
 			&& item->media()
 			&& item->media()->ttlSeconds();
-		if (!ttlSeconds) {
+		if (!ttlSeconds && state.id.type() == AudioMsgId::Type::Song) {
+			// mokaGram music: a song plays in the island, not in the
+			// player bar. The bar may stay from a voice message: hide it.
+			if (_player && _player->toggled()) {
+				_player->hide(anim::type::normal);
+				_playerPlaylist->hideIgnoringEnterEvents();
+			}
+			Mokagram::Music::UpdateIsland(
+				this,
+				_controller,
+				_history.get(),
+				true);
+		} else if (!ttlSeconds) {
 			createPlayer();
 		}
 	} else if (state.state == State::StoppedAtStart) {
@@ -2848,6 +2862,8 @@ void MainWidget::updateControlsGeometry() {
 	updateMediaPlaylistPosition(_playerPlaylist->x());
 	_contentScrollAddToY = 0;
 
+	// mokaGram music: the island stays centered over the chat.
+	Mokagram::Music::UpdateIsland(this, _controller, _history.get(), false);
 	floatPlayerUpdatePositions();
 }
 
@@ -3237,6 +3253,10 @@ void MainWidget::updateWindowAdaptiveLayout() {
 		: layout.dialogsWidth;
 	_thirdColumnWidth = layout.thirdWidth;
 	_controller->adaptive().setWindowLayout(layout.windowLayout);
+}
+
+HistoryWidget *MainWidget::sgHistoryWidget() const {
+	return _history.get();
 }
 
 int MainWidget::backgroundFromY() const {

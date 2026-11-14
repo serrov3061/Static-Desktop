@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/media/history_view_sticker.h"
 
+#include "ui/text/text_emoji_budget.h"
+
 #include "base/options.h"
 #include "boxes/sticker_set_box.h"
 #include "history/history.h"
@@ -320,8 +322,10 @@ void Sticker::paintAnimationFrame(
 	const auto powerSavingFlag = emojiSticker()
 		? PowerSaving::kEmojiChat
 		: PowerSaving::kStickersChat;
+	// mokaGram anti-lag: only a few animated stickers play at once.
 	const auto paused = context.paused
-		|| (_diceIndex < 0 && On(powerSavingFlag));
+		|| (_diceIndex < 0 && On(powerSavingFlag))
+		|| !Ui::Text::TakeStickerBudget();
 	const auto frame = _player
 		? _player->frame(
 			_size,

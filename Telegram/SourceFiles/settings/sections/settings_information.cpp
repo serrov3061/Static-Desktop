@@ -72,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_window.h"
+#include "mokagram/streamer/mokagram_streamer.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtCore/QBuffer>
@@ -367,12 +368,18 @@ void ShowMenu(
 		const QString &copyButton,
 		const QString &text,
 		const style::icon *copyIcon = nullptr,
-		Fn<void(not_null<Ui::PopupMenu*>)> extend = nullptr) {
+		Fn<void(not_null<Ui::PopupMenu*>)> extend = nullptr,
+		Fn<void(const QString &)> copyAction = nullptr) {
 	const auto menu = Ui::CreateChild<Ui::PopupMenu>(
 		parent,
 		extend ? st::popupMenuWithIcons : st::defaultPopupMenu);
 
 	menu->addAction(copyButton, [=] {
+		if (copyAction) {
+			// Streamer mode: the shown text is masked, the hook copies.
+			copyAction(text);
+			return;
+		}
 		QGuiApplication::clipboard()->setText(text);
 	}, copyIcon);
 	if (extend) {
@@ -406,7 +413,8 @@ not_null<Ui::SettingsButton*> AddRow(
 		IconDescriptor &&descriptor,
 		bool markedValue = false,
 		Fn<void(not_null<Ui::PopupMenu*>)> menuExtender = nullptr,
-		const style::icon *copyIcon = nullptr) {
+		const style::icon *copyIcon = nullptr,
+		Fn<void(const QString &)> copyAction = nullptr) {
 	const auto wrap = markedValue
 		? AddButtonWithIcon(
 			container,
@@ -437,7 +445,13 @@ not_null<Ui::SettingsButton*> AddRow(
 		if (button == Qt::LeftButton) {
 			edit();
 		} else if (!forcopy->isEmpty()) {
-			ShowMenu(wrap, copyButton, *forcopy, copyIcon, menuExtender);
+			ShowMenu(
+				wrap,
+				copyButton,
+				*forcopy,
+				copyIcon,
+				menuExtender,
+				copyAction);
 		}
 	}, wrap->lifetime());
 
@@ -619,7 +633,18 @@ void SetupRows(
 		Info::Profile::NameValue(self) | rpl::map(tr::marked),
 		tr::lng_profile_copy_fullname(tr::now),
 		showEditName,
-		{ &st::menuIconProfile });
+		{ &st::menuIconProfile },
+		false,
+		nullptr,
+		nullptr,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (Active(Field::Name)) {
+				SetClipboard(Field::Name, self->name());
+			} else {
+				QGuiApplication::clipboard()->setText(shown);
+			}
+		});
 	if (targets) {
 		targets->name = nameButton;
 	}
@@ -642,7 +667,15 @@ void SetupRows(
 		[=](not_null<Ui::PopupMenu*> menu) {
 			Info::Profile::AddPhoneSpoilerMenu(menu, self);
 		},
-		&st::menuIconCopy);
+		&st::menuIconCopy,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (Active(Field::Phone)) {
+				Info::Profile::CopyPhoneToClipboard(self);
+			} else {
+				QGuiApplication::clipboard()->setText(shown);
+			}
+		});
 	if (targets) {
 		targets->phone = phoneButton;
 	}
@@ -691,7 +724,23 @@ void SetupRows(
 				session->api().usernames().requestToCache(session->user());
 			}, box->lifetime());
 		},
-		{ &st::menuIconUsername });
+		{ &st::menuIconUsername },
+		false,
+		nullptr,
+		nullptr,
+		[=](const QString &shown) {
+			using namespace Mokagram::Streamer;
+			if (!Active(Field::Username)) {
+				QGuiApplication::clipboard()->setText(shown);
+				return;
+			}
+			// В показанном тексте маска, настоящий ник берём из данных.
+			const auto &list = self->usernames();
+			const auto real = list.empty() ? self->username() : list.front();
+			if (!real.isEmpty()) {
+				SetClipboard(Field::Username, '@' + real);
+			}
+		});
 	if (targets) {
 		targets->username = usernameButton;
 	}
@@ -943,6 +992,10 @@ void SetupAccountsWrap(
 		}
 
 		addAction(tr::lng_profile_copy_phone(tr::now), [=] {
+			if (Mokagram::Streamer::Active(Mokagram::Streamer::Field::Phone)) {
+				Info::Profile::CopyPhoneToClipboard(session->user());
+				return;
+			}
 			Info::Profile::CopyPhoneToClipboard(
 				Info::Profile::PhoneValue(session->user()));
 		}, &st::menuIconCopy);

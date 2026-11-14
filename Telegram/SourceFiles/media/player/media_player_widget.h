@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "data/data_audio_msg_id.h"
 #include "ui/rp_widget.h"
+#include "ui/effects/animations.h"
 #include "ui/userpic_view.h"
 #include "base/object_ptr.h"
 
@@ -23,6 +24,7 @@ namespace Ui {
 class FlatLabel;
 class LabelSimple;
 class IconButton;
+class AbstractButton;
 class PlainShadow;
 class FilledSlider;
 template <typename Widget>
@@ -165,10 +167,19 @@ private:
 	object_ptr<Ui::IconButton> _volumeToggle;
 	object_ptr<Ui::IconButton> _repeatToggle;
 	object_ptr<Ui::IconButton> _orderToggle;
+	object_ptr<Ui::AbstractButton> _lyricsToggle;
+	object_ptr<Ui::AbstractButton> _fullscreenToggle;
 	object_ptr<SpeedButton> _speedToggle;
 	object_ptr<Ui::IconButton> _close;
 	object_ptr<Ui::PlainShadow> _shadow = { nullptr };
 	object_ptr<Ui::FilledSlider> _playbackSlider;
+	Ui::Animations::Simple _spin;
+	Ui::Animations::Basic _discAnimation;
+	QPixmap _discLabel;
+	qint64 _discLabelKey = 0;
+	double _discAngle = 0.;
+	crl::time _discTime = 0;
+	bool _discPlaying = false;
 	base::unique_qptr<Dropdown> _volume;
 	std::unique_ptr<View::PlaybackProgress> _playbackProgress;
 	std::unique_ptr<OrderController> _orderController;

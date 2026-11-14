@@ -50,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_builder.h"
 #include "staticgram/sg_domains.h"
 #include "staticgram/sg_money.h"
+#include "staticgram/sg_moka_features.h"
 #include "staticgram/sg_settings_boxes.h"
 #include "settings/cloud_password/settings_cloud_password_input.h"
 #include "settings/sections/settings_advanced.h"
@@ -599,6 +600,37 @@ void BuildStaticGramSection(SectionBuilder &builder) {
 		.icon = { &st::menuIconPhoto },
 		.onClick = [=] { StaticGram::ShowBannerBox(controller); },
 		.keywords = { u"banner"_q, u"cover"_q, u"profile"_q },
+	});
+
+	// mokaGram features brought back 14.11.2026.
+	builder.addButton({
+		.id = u"main/sg-streamer"_q,
+		.title = tr::lng_sg_streamer_title(),
+		.icon = { &st::menuIconStealth },
+		.onClick = [=] {
+			StaticGram::MokaFeatures::ShowStreamerBox(controller);
+		},
+		.keywords = { u"streamer"_q, u"stream"_q, u"hide"_q, u"phone"_q },
+	});
+
+	builder.addButton({
+		.id = u"main/sg-music"_q,
+		.title = tr::lng_sg_music_title(),
+		.icon = { &st::menuIconSoundOn },
+		.onClick = [=] {
+			StaticGram::MokaFeatures::ShowMusicSettingsBox(controller);
+		},
+		.keywords = { u"music"_q, u"soundcloud"_q, u"lyrics"_q, u"player"_q },
+	});
+
+	builder.addButton({
+		.id = u"main/sg-performance"_q,
+		.title = tr::lng_sg_performance_title(),
+		.icon = { &st::menuIconPowerUsage },
+		.onClick = [=] {
+			StaticGram::MokaFeatures::ShowPerformanceBox(controller);
+		},
+		.keywords = { u"lag"_q, u"performance"_q, u"power"_q, u"fps"_q },
 	});
 
 	builder.addSkip();

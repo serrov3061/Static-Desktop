@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/edit_privacy_box.h"
 
+#include "mokagram/streamer/mokagram_streamer.h"
+
 #include "api/api_global_privacy.h"
 #include "apiwrap.h"
 #include "boxes/filters/edit_filter_chats_list.h"
@@ -1357,7 +1359,11 @@ void EditDirectMessagesPriceBox(
 		const auto link = channel->session().createInternalLinkFull(username)
 			+ kDirectParam.utf8();
 		const auto copyLink = [=] {
-			TextUtilities::SetClipboardText(TextForMimeData::Simple(link));
+			if (Mokagram::Streamer::CopyBlocked(Mokagram::Streamer::Field::Link)) {
+				return;
+			}
+			TextUtilities::SetClipboardText(TextForMimeData::Simple(
+				Mokagram::Streamer::ForCopy(Mokagram::Streamer::Field::Link, link)));
 			box->uiShow()->showToast({
 				.text = { tr::lng_group_invite_copied(tr::now) },
 				.iconLottie = u"toast/voip_invite"_q,
