@@ -394,6 +394,17 @@ constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_update_retry", "Повторить" },
 	{ "lng_sg_update_download", "Скачать" },
 	// ota end
+	// stage2
+	{ "lng_sg_settings_profile", "Профиль" },
+	{ "lng_sg_settings_gift_bubbles", "Пузыри с подарками" },
+	{ "lng_sg_settings_gift_bubbles_about", "Закреплённые подарки кружатся вокруг аватара в стеклянных пузырях. Если выключить, подарки показываются как обычно. Применяется при следующем открытии профиля." },
+	{ "lng_sg_music_unknown_artist", "Неизвестный исполнитель" },
+	{ "lng_sg_gift_layout_edit", "Изменить расположение" },
+	{ "lng_sg_gift_layout_save", "Сохранить расположение" },
+	{ "lng_sg_gift_layout_hint", "Потяните за уголок подарка или нажмите на него, чтобы изменить размер. Сохраните расположение в меню." },
+	{ "lng_sg_gift_layout_saved", "Расположение сохранено" },
+	{ "lng_sg_gift_layout_limit", "Изменить размер можно не более чем {limit} подаркам" },
+	// stage2 end
 });
 
 // The "{tag}" placeholders become the lang tag commands, the way the lang

@@ -2483,6 +2483,12 @@ PRIVATE
     staticgram/sg_proxies.h
     staticgram/sg_profile_gift_bubbles.cpp
     staticgram/sg_profile_gift_bubbles.h
+    staticgram/sg_local_settings.cpp
+    staticgram/sg_local_settings.h
+    staticgram/sg_profile_music_plate.cpp
+    staticgram/sg_profile_music_plate.h
+    staticgram/sg_gift_tiles.cpp
+    staticgram/sg_gift_tiles.h
     # p-misc end
     ui/peer/video_userpic_player.cpp
     ui/peer/video_userpic_player.h

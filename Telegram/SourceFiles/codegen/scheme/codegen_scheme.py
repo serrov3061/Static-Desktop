@@ -96,6 +96,15 @@ generate({
     'tondns.buyListed#c2f511da',
     'tondns.getListings#b4961c29',
     'tondns.getMyListings#ecf0d678',
+    'sggifts.tile#43eb4d44',
+    'sggifts.tileLayout#2b5480f8',
+    'sggifts.tileSize#e654f510',
+    'sggifts.tileSizes#4ebacdd8',
+    'sggifts.inputTileSize#08b711b1',
+    'sggifts.getTileLayout#b77a5273',
+    'sggifts.saveTileLayout#b0824974',
+    'sggifts.getTileSizes#347dacd5',
+    'sggifts.saveTileSizes#fc50fd2f',
   ],
 
   'renamedTypes': {

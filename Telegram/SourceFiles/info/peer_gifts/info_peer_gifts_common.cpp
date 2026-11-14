@@ -667,6 +667,65 @@ void GiftButton::setGeometry(QRect inner, QMargins extend) {
 	AbstractButton::setGeometry(inner.marginsAdded(extend));
 }
 
+void GiftButton::setTile(bool tile, float64 scale) {
+	scale = tile ? std::clamp(scale, 1., 3.) : 1.;
+	if (_tile == tile && _tileScale == scale) {
+		return;
+	}
+	const auto rescaled = (_tileScale != scale);
+	_tile = tile;
+	_tileScale = scale;
+	_tileBackgroundCache = QImage();
+	if (rescaled && _createPlayer) {
+		// Re-render the sticker at the new size to keep it sharp.
+		_player = nullptr;
+		if (_kept) {
+			*_kept = KeptFrame();
+		}
+	}
+	update();
+}
+
+void GiftButton::paintTileBackground(
+		QPainter &p,
+		const QImage &background) {
+	const auto removed = currentExtend() - _extend;
+	const auto target = rect().marginsRemoved(removed);
+	const auto ratio = int(background.devicePixelRatio());
+	const auto bheight = background.height() / ratio;
+	if (target.height() <= bheight || bheight < 3) {
+		Ui::PaintGiftCardBackground(p, background, target);
+		return;
+	}
+	// The card of the usual height, stretched by its middle row.
+	const auto size = QSize(target.width(), bheight);
+	if (_tileBackgroundCache.size() != size * ratio) {
+		_tileBackgroundCache = QImage(
+			size * ratio,
+			QImage::Format_ARGB32_Premultiplied);
+		_tileBackgroundCache.setDevicePixelRatio(ratio);
+		_tileBackgroundCache.fill(Qt::transparent);
+		auto q = QPainter(&_tileBackgroundCache);
+		Ui::PaintGiftCardBackground(q, background, QRect(QPoint(), size));
+	}
+	const auto top = bheight / 2;
+	const auto bottom = bheight - top - 1;
+	const auto w = target.width();
+	const auto &cache = _tileBackgroundCache;
+	p.drawImage(
+		QRect(target.x(), target.y(), w, top),
+		cache,
+		QRect(0, 0, w * ratio, top * ratio));
+	p.drawImage(
+		QRect(target.x(), target.y() + top, w, target.height() - bheight + 1),
+		cache,
+		QRect(0, top * ratio, w * ratio, ratio));
+	p.drawImage(
+		QRect(target.x(), target.y() + target.height() - bottom, w, bottom),
+		cache,
+		QRect(0, (top + 1) * ratio, w * ratio, bottom * ratio));
+}
+
 QMargins GiftButton::currentExtend() const {
 	const auto progress = (_selectionMode == GiftSelectionMode::Border)
 		? _selectedAnimation.value(_selected ? 1. : 0.)
@@ -717,7 +776,14 @@ void GiftButton::toggleSelected(
 
 void GiftButton::paintBackground(QPainter &p, const QImage &background) {
 	const auto removed = currentExtend() - _extend;
-	Ui::PaintGiftCardBackground(p, background, rect().marginsRemoved(removed));
+	if (_tile) {
+		paintTileBackground(p, background);
+	} else {
+		Ui::PaintGiftCardBackground(
+			p,
+			background,
+			rect().marginsRemoved(removed));
+	}
 
 	auto hq = PainterHighQualityEnabler(p);
 	const auto progress = (_selectionMode == GiftSelectionMode::Border)
@@ -1034,7 +1100,7 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 	const auto background = _delegate->background();
 	const auto dpr = int(background.devicePixelRatio());
 	const auto width = this->width();
-	const auto height = background.height() / dpr;
+	const auto height = _tile ? this->height() : (background.height() / dpr);
 	const auto roundedRatio = (1. - craftProgress);
 	if (craftProgress == 0.) {
 		paintBackground(p, background);
@@ -1068,7 +1134,7 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 		pen.setWidth(style::ConvertScaleExact(2.));
 		p.setPen(pen);
 		p.setBrush(Qt::NoBrush);
-		const auto outer = QRect(0, 0, width, background.height() / dpr);
+		const auto outer = QRect(0, 0, width, height);
 		const auto extend = currentExtend();
 		const auto radius = st::giftBoxGiftRadius;
 		p.drawRoundedRect(outer.marginsRemoved(extend), radius, radius);
@@ -1465,9 +1531,14 @@ void GiftButton::paint(QPainter &p, float64 craftProgress) {
 }
 
 QSize GiftButton::stickerSize() const {
-	return (_mode == Mode::CraftPreview)
+	const auto result = (_mode == Mode::CraftPreview)
 		? st::giftBoxStickerTiny
 		: st::giftBoxStickerSize;
+	return (_tileScale > 1.)
+		? QSize(
+			int(base::SafeRound(result.width() * _tileScale)),
+			int(base::SafeRound(result.height() * _tileScale)))
+		: result;
 }
 
 Delegate::Delegate(not_null<Main::Session*> session, GiftButtonMode mode)

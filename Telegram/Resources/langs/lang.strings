@@ -9501,5 +9501,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_update_retry" = "Try again";
 "lng_sg_update_download" = "Download";
 // ota end
+// stage2
+"lng_sg_settings_profile" = "Profile";
+"lng_sg_settings_gift_bubbles" = "Gift bubbles";
+"lng_sg_settings_gift_bubbles_about" = "Pinned gifts orbit the avatar in glass bubbles. When off, gifts are shown the standard way. Applies the next time a profile opens.";
+"lng_sg_music_unknown_artist" = "Unknown artist";
+"lng_sg_gift_layout_edit" = "Edit layout";
+"lng_sg_gift_layout_save" = "Save layout";
+"lng_sg_gift_layout_hint" = "Drag the corner of a gift to resize it or click a gift to change its size. Save the layout in the menu.";
+"lng_sg_gift_layout_saved" = "Layout saved";
+"lng_sg_gift_layout_limit" = "Up to {limit} gifts can have a custom size";
+// stage2 end
 
 // Keys finished
