@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "staticgram/sg_badges.h"
 
 #include "data/data_peer.h"
+#include "main/main_app_config.h"
+#include "main/main_session.h"
+#include "ui/unread_badge.h"
 #include "settings.h"
 #include "ui/effects/animation_value.h"
 #include "ui/power_saving.h"
@@ -415,8 +418,54 @@ const AvatarFrame *Store::frame(uint64 userId) {
 
 } // namespace
 
-DocumentId BadgeDocumentId(not_null<PeerData*> peer) {
+DocumentId RealBadgeDocumentId(not_null<PeerData*> peer) {
 	return Instance().badge(peer);
+}
+
+bool IsRightVerificationIcon(
+		not_null<Main::Session*> session,
+		DocumentId iconId) {
+	if (!iconId) {
+		return false;
+	}
+	// Called from paint code (dialogs rows, names): the parsed list is
+	// cached for a second instead of reading the app config every time.
+	struct Cache {
+		Main::Session *session = nullptr;
+		crl::time parsed = 0;
+		std::vector<DocumentId> ids;
+	};
+	static auto cache = Cache();
+	const auto now = crl::now();
+	if (cache.session != session.get()
+		|| !cache.parsed
+		|| now - cache.parsed >= crl::time(1000)) {
+		cache.session = session.get();
+		cache.parsed = now;
+		cache.ids.clear();
+		// App config strings: JSON numbers lose int64 precision.
+		const auto list = session->appConfig().get<std::vector<QString>>(
+			u"sg_right_verification_icons"_q,
+			std::vector<QString>());
+		for (const auto &entry : list) {
+			if (const auto id = entry.trimmed().toULongLong()) {
+				cache.ids.push_back(id);
+			}
+		}
+	}
+	return ranges::contains(cache.ids, iconId);
+}
+
+DocumentId BadgeDocumentId(not_null<PeerData*> peer) {
+	if (const auto real = Instance().badge(peer)) {
+		return real;
+	}
+	if (const auto raw = peer->rawBotVerifyDetails()) {
+		if (IsRightVerificationIcon(&peer->session(), raw->iconId)) {
+			return raw->iconId;
+		}
+	}
+	return 0;
 }
 
 ProfileBanner BannerOfUser(uint64 userId) {

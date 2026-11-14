@@ -286,7 +286,10 @@ public:
 	[[nodiscard]] bool hasStoriesHidden() const;
 	void setStoriesHidden(bool hidden);
 
+	// StaticGram: icons listed in sg_right_verification_icons are not
+	// the left bot-verification mark, see rightVerificationIcon().
 	[[nodiscard]] Ui::BotVerifyDetails *botVerifyDetails() const;
+	[[nodiscard]] Ui::BotVerifyDetails *rawBotVerifyDetails() const;
 
 	[[nodiscard]] bool isNotificationsUser() const {
 		return (id == peerFromUser(333000))

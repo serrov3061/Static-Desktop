@@ -10,6 +10,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class PeerData;
 
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace StaticGram {
 
 // exteraStatic badges and avatar frames (Android BadgesController /
@@ -33,7 +37,17 @@ struct UserBadge {
 };
 
 // The custom emoji shown as the peer's badge next to its name, or 0.
+// With a fallback to the peer's bot_verification_icon listed in the app
+// config sg_right_verification_icons (a partner mark drawn on the right,
+// like Android getBadgeOrMark).
 [[nodiscard]] DocumentId BadgeDocumentId(not_null<PeerData*> peer);
+// Only a real badge, without the partner mark fallback.
+[[nodiscard]] DocumentId RealBadgeDocumentId(not_null<PeerData*> peer);
+
+// Whether the icon is listed in app config sg_right_verification_icons.
+[[nodiscard]] bool IsRightVerificationIcon(
+	not_null<Main::Session*> session,
+	DocumentId iconId);
 
 // The full badge of a user (bare id), empty when there is none.
 [[nodiscard]] UserBadge BadgeOfUser(uint64 userId);

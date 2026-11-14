@@ -428,13 +428,16 @@ void AddFeature(
 	}, wrap->lifetime());
 }
 
-// The round badge icon on top of the supporter boxes.
+// The round badge icon on top of the supporter boxes. The document id comes
+// as a producer: it follows the server (app config sg_badges_* and the
+// badges list), so a changed icon shows up without a rebuild.
 void AddBadgeIcon(
 		not_null<Ui::GenericBox*> box,
 		not_null<Main::Session*> session,
-		DocumentId documentId) {
+		rpl::producer<DocumentId> documentId) {
 	struct State {
 		std::unique_ptr<Ui::Text::CustomEmoji> emoji;
+		DocumentId id = 0;
 	};
 	const auto state = box->lifetime().make_state<State>();
 	const auto icon = box->addRow(
@@ -442,41 +445,36 @@ void AddBadgeIcon(
 		st::sgSupporterIconPadding,
 		style::al_top);
 	icon->resize(st::sgSupporterIcon, st::sgSupporterIcon);
-	if (documentId) {
-		state->emoji = session->data().customEmojiManager().create(
-			documentId,
-			[=] { icon->update(); },
-			Data::CustomEmojiSizeTag::Large);
-	}
-	icon->paintRequest() | rpl::on_next([=] {
-		auto p = QPainter(icon);
-		auto hq = PainterHighQualityEnabler(p);
-		p.setPen(Qt::NoPen);
-		p.setBrush(st::activeButtonBg);
-		// The row stretches the widget to the box width: keep the badge a circle in the middle.
-		const auto side = std::min(icon->width(), icon->height());
-		p.drawEllipse(QRect(
-			(icon->width() - side) / 2,
-			(icon->height() - side) / 2,
-			side,
-			side));
-		if (state->emoji) {
-			const auto size = Data::FrameSizeFromTag(
-				Data::CustomEmojiSizeTag::Large) / style::DevicePixelRatio();
-			state->emoji->paint(p, {
-				.textColor = st::activeButtonFg->c,
-				.now = crl::now(),
-				.position = QPoint(
-					(icon->width() - size) / 2,
-					(icon->height() - size) / 2),
-				.paused = !AvatarFramesAnimated(),
-			});
-		} else {
-			st::menuIconStar.paintInCenter(
-				p,
-				icon->rect(),
-				st::activeButtonFg->c);
+	const auto emojiSize = st::sgSupporterIconEmoji;
+	std::move(documentId) | rpl::on_next([=](DocumentId id) {
+		if (state->id == id && (state->emoji || !id)) {
+			return;
 		}
+		state->id = id;
+		state->emoji = id
+			? session->data().customEmojiManager().create(
+				id,
+				[=] { icon->update(); },
+				Data::CustomEmojiSizeTag::Large,
+				emojiSize)
+			: nullptr;
+		icon->update();
+	}, icon->lifetime());
+	// Like Android SupporterArrowView.setBadge: the badge emoji itself,
+	// large and tinted with the accent, no built-in icon under it.
+	icon->paintRequest() | rpl::on_next([=] {
+		if (!state->emoji) {
+			return;
+		}
+		auto p = QPainter(icon);
+		state->emoji->paint(p, {
+			.textColor = st::activeButtonBg->c,
+			.now = crl::now(),
+			.position = QPoint(
+				(icon->width() - emojiSize) / 2,
+				(icon->height() - emojiSize) / 2),
+			.paused = !AvatarFramesAnimated(),
+		});
 	}, icon->lifetime());
 }
 
@@ -520,7 +518,17 @@ void SupporterBox(
 	box->setWidth(st::boxWideWidth);
 	box->setNoContentMargin(true);
 
-	AddBadgeIcon(box, session, config.defaultDocumentId);
+	// Own badge emoji when the user has one, else the server default.
+	AddBadgeIcon(
+		box,
+		session,
+		rpl::merge(
+			session->appConfig().value(),
+			BadgesUpdated()
+		) | rpl::map([=] {
+			const auto own = BadgeOfUser(SelfId(session)).documentId;
+			return own ? own : ReadBadgesConfig(session).defaultDocumentId;
+		}));
 
 	box->addRow(
 		object_ptr<Ui::FlatLabel>(
@@ -739,7 +747,7 @@ void PeerBadgeBox(
 	const auto config = ReadBadgesConfig(session);
 	const auto badge = peer->isUser()
 		? BadgeOfUser(peerToUser(peer->id).bare)
-		: UserBadge{ .documentId = BadgeDocumentId(peer) };
+		: UserBadge{ .documentId = RealBadgeDocumentId(peer) };
 	const auto custom = badge.canChange;
 	SetupBox(box);
 	box->setWidth(st::boxWideWidth);
@@ -748,7 +756,17 @@ void PeerBadgeBox(
 	AddBadgeIcon(
 		box,
 		session,
-		badge.documentId ? badge.documentId : config.defaultDocumentId);
+		rpl::merge(
+			session->appConfig().value(),
+			BadgesUpdated()
+		) | rpl::map([=] {
+			const auto now = peer->isUser()
+				? BadgeOfUser(peerToUser(peer->id).bare)
+				: UserBadge{ .documentId = RealBadgeDocumentId(peer) };
+			return now.documentId
+				? now.documentId
+				: ReadBadgesConfig(session).defaultDocumentId;
+		}));
 	box->addRow(
 		object_ptr<Ui::FlatLabel>(
 			box,
@@ -1938,7 +1956,7 @@ void ShowPeerBadgeBox(
 		not_null<PeerData*> peer) {
 	if (peer->isSelf()) {
 		ShowBadgeBox(controller);
-	} else if (BadgeDocumentId(peer)) {
+	} else if (RealBadgeDocumentId(peer)) {
 		controller->show(Box(PeerBadgeBox, controller, peer));
 	}
 }

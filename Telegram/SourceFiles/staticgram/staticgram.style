@@ -52,7 +52,8 @@ sgFrameChipsPadding: margins(22px, 2px, 22px, 10px);
 sgFrameSliderPadding: margins(22px, 8px, 22px, 12px);
 
 // Support StaticGram box.
-sgSupporterIcon: 80px;
+sgSupporterIcon: 120px;
+sgSupporterIconEmoji: 112px;
 sgSupporterIconPadding: margins(0px, 8px, 0px, 0px);
 sgSupporterTitle: FlatLabel(boxTitle) {
 	align: align(top);

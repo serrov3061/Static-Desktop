@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_sensitive_content.h"
 #include "data/data_user.h"
+#include "staticgram/sg_badges.h"
 #include "data/data_chat.h"
 #include "data/data_chat_participant_status.h"
 #include "data/data_channel.h"
@@ -1658,6 +1659,16 @@ void PeerData::setStoriesHidden(bool hidden) {
 }
 
 Ui::BotVerifyDetails *PeerData::botVerifyDetails() const {
+	const auto result = rawBotVerifyDetails();
+	return (result
+		&& StaticGram::IsRightVerificationIcon(
+			&session(),
+			result->iconId))
+		? nullptr
+		: result;
+}
+
+Ui::BotVerifyDetails *PeerData::rawBotVerifyDetails() const {
 	if (const auto user = asUser()) {
 		return user->botVerifyDetails();
 	} else if (const auto channel = asChannel()) {
