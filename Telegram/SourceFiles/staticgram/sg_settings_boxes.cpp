@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
+#include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "mokagram/ui/mokagram_box_parts.h"
 #include "settings/settings_common.h"

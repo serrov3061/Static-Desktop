@@ -152,14 +152,15 @@ void Request(not_null<PeerData*> peer, bool force) {
 		return;
 	}
 	chat.lastLoad = now ? now : 1;
-	const auto weak = base::make_weak(channel);
+	// Peers live as long as the session, so the session is the guard.
+	const auto weak = base::make_weak(&channel->session());
 	channel->session().api().request(MTPsgtags_GetTagColors(
 		channel->input()
 	)).done([=](const MTPsgtags_TagColors &result) {
-		const auto strong = weak.get();
-		if (!strong) {
+		if (!weak) {
 			return;
 		}
+		const auto strong = channel;
 		auto colors = base::flat_map<UserId, QRgb>();
 		result.match([&](const MTPDsgtags_tagColors &data) {
 			for (const auto &item : data.vcolors().v) {
@@ -191,7 +192,8 @@ void Set(
 		return;
 	}
 	using Flag = MTPsgtags_setTagColor::Flag;
-	const auto weak = base::make_weak(channel);
+	// Peers live as long as the session, so the session is the guard.
+	const auto weak = base::make_weak(&channel->session());
 	const auto userId = peerToUser(user->id);
 	const auto valid = color.isValid();
 	const auto rgb = valid ? (color.rgb() & 0xFFFFFF) : 0;
@@ -201,7 +203,8 @@ void Set(
 		user->input(),
 		MTP_int(int(rgb))
 	)).done([=] {
-		if (const auto strong = weak.get()) {
+		if (weak) {
+			const auto strong = channel;
 			auto &colors = Lookup(strong).colors;
 			if (valid) {
 				colors[userId] = QRgb(0xFF000000 | rgb);
