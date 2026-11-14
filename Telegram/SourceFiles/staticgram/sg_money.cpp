@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "mokagram/ui/mokagram_box_parts.h"
+#include "history/view/media/history_view_sg_transfer.h"
 #include "settings/settings_credits_graphics.h" // ReceiptCreditsBox.
 #include "staticgram/sg_money_cards.h"
 #include "staticgram/sg_money_editor.h"
@@ -140,6 +141,14 @@ void FillTransactions(
 					const Data::CreditsHistoryEntry &e,
 					const Data::SubscriptionEntry &s) {
 				if (const auto strong = weak.get()) {
+					if (!ton && HistoryView::IsSgStarsTransferEntry(e)) {
+						// Android: Stars transfer rows open the Stars receipt.
+						HistoryView::ShowSgStarsTransferReceipt(
+							strong->uiShow(),
+							strong->session().user(),
+							e);
+						return;
+					}
 					strong->uiShow()->show(Box(
 						::Settings::ReceiptCreditsBox,
 						strong,

@@ -3327,6 +3327,8 @@ gramwallet.sendToAddress#f4fd69e6 flags:# address:string amount:long comment:str
 sgcard.getCards#a4ea727d user_id:InputUser = sgcard.Cards;
 sgcard.saveCard#68500e80 flags:# kind:int background_slug:flags.0?string stickers:Vector<sgcard.InputSticker> = sgcard.Card;
 sgcard.sendStars#a9341b5a user_id:InputUser amount:long comment:string request_key:string = sgcard.StarsResult;
+sgcard.getMoneyPrivacy#7d6e382c = account.PrivacyRules;
+sgcard.setMoneyPrivacy#f59b65ff rules:Vector<InputPrivacyRule> = account.PrivacyRules;
 tondns.checkDomain#ce407588 name:string = tondns.DomainCheck;
 tondns.buyDomain#dfde8b00 name:string price:long request_key:string = tondns.BuyResult;
 tondns.getMyDomains#b1ba10e8 = tondns.Domains;
