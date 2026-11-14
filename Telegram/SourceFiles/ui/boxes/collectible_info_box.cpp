@@ -63,11 +63,17 @@ namespace {
 		: TextWithEntities{ ('{'
 			+ info.cryptoCurrency + ':' + QString::number(info.cryptoAmount)
 			+ '}') };
-	const auto fiat = Ui::FillAmountAndCurrency(info.amount, info.currency);
-	return Ui::Text::Wrapped(
-		price,
-		EntityType::Bold
-	).append(u" ("_q + fiat + ')');
+	auto result = Ui::Text::Wrapped(price, EntityType::Bold);
+	// StaticGram: no "(0)" / "(TON …)" fiat part (Android formatFiatPrice).
+	if (info.amount
+		&& !info.currency.isEmpty()
+		&& info.currency.compare(u"TON"_q, Qt::CaseInsensitive) != 0) {
+		const auto fiat = Ui::FillAmountAndCurrency(
+			info.amount,
+			info.currency);
+		result.append(u" ("_q + fiat + ')');
+	}
+	return result;
 }
 
 [[nodiscard]] object_ptr<Ui::RpWidget> MakeOwnerCell(
@@ -218,15 +224,26 @@ void CollectibleInfoBox(
 
 	box->addRow(MakeOwnerCell(box, info), st::collectibleOwnerPadding);
 
-	const auto text = ((type == CollectibleType::Phone)
-		? tr::lng_collectible_phone_info
-		: tr::lng_collectible_username_info)(
-			tr::now,
-			lt_date,
-			TextWithEntities{ FormatDate(info.date) },
-			lt_price,
-			FormatPrice(info),
-			tr::rich);
+	// StaticGram: an old collectible may come without a usable price
+	// (zero amount or no crypto currency): no price in the sentence then.
+	const auto noPrice = !info.cryptoAmount || info.cryptoCurrency.isEmpty();
+	const auto text = noPrice
+		? ((type == CollectibleType::Phone)
+			? tr::lng_sg_collectible_phone_no_price
+			: tr::lng_sg_collectible_username_no_price)(
+				tr::now,
+				lt_date,
+				TextWithEntities{ FormatDate(info.date) },
+				tr::rich)
+		: ((type == CollectibleType::Phone)
+			? tr::lng_collectible_phone_info
+			: tr::lng_collectible_username_info)(
+				tr::now,
+				lt_date,
+				TextWithEntities{ FormatDate(info.date) },
+				lt_price,
+				FormatPrice(info),
+				tr::rich);
 	const auto label = box->addRow(
 		object_ptr<Ui::FlatLabel>(box, st::collectibleInfo),
 		st::collectibleInfoPadding,

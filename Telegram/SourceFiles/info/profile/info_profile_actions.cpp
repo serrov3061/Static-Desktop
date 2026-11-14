@@ -1745,8 +1745,17 @@ Section DetailsFiller::makeInfo() {
 				user->session().supportHelper().infoTextValue(user));
 		}
 
+		// StaticGram: an anonymous (+888) number is labelled as such, like
+		// on Android; a tap on it opens the collectible number sheet.
+		auto phoneLabel = PhoneValue(
+			user
+		) | rpl::map([=](const TextWithEntities &) {
+			return IsCollectiblePhone(user)
+				? tr::lng_sg_anonymous_number(tr::now)
+				: tr::lng_info_mobile_label(tr::now);
+		}) | rpl::distinct_until_changed();
 		const auto phoneLine = addInfoOneLine(
-			tr::lng_info_mobile_label(),
+			std::move(phoneLabel),
 			PhoneWithSpoilerValue(user, PhoneOrHiddenValue(user)),
 			tr::lng_profile_copy_phone(tr::now),
 			st::infoProfileLabeledPadding,
