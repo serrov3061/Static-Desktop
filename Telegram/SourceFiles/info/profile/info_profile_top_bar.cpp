@@ -3715,7 +3715,7 @@ void TopBar::setupNewGifts(
 		}
 	}
 
-	if (_source != Source::Preview) {
+	if (_source != Source::Preview && _sgGiftBubblesEnabled) {
 		// StaticGram: glass bubbles instead of the static gift icons.
 		setupStaticGramGiftBubbles(controller);
 		_sgGiftBubbles->setGifts(filteredGifts);

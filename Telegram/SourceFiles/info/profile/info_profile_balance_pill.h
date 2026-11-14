@@ -13,6 +13,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class UserData;
 
+namespace StaticGram::Money {
+enum class Kind;
+} // namespace StaticGram::Money
+
 namespace Info::Profile {
 
 class BalancePill final : public Ui::AbstractButton {
@@ -20,7 +24,10 @@ public:
 	BalancePill(
 		QWidget *parent,
 		not_null<UserData*> user,
-		rpl::producer<std::optional<QColor>> edgeColor);
+		rpl::producer<std::optional<QColor>> edgeColor,
+		StaticGram::Money::Kind kind);
+
+	[[nodiscard]] StaticGram::Money::Kind kind() const;
 
 	void setOpacity(float64 opacity);
 	[[nodiscard]] int fittedWidth() const;
@@ -36,11 +43,12 @@ protected:
 	QString accessibilityName() override;
 
 private:
-	void setContent(const QString &label, int64 balance);
+	void setContent(const QString &label, int64 balance, bool shown);
 	void refreshColors();
 	void refreshLayout(int newWidth);
 	void paintContent(QPainter &p) const;
 
+	const StaticGram::Money::Kind _kind;
 	Wallet::AmountPainter _amount;
 	std::optional<QColor> _edgeColor;
 	PillColors _colors;

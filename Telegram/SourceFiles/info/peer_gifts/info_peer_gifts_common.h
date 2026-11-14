@@ -195,6 +195,9 @@ public:
 	using Mode = GiftButtonMode;
 	void setDescriptor(const GiftDescriptor &descriptor, Mode mode);
 	void setGeometry(QRect inner, QMargins extend);
+	// StaticGram: a bento tile of the profile Gifts grid (sggifts), the
+	// card fills the whole button and the sticker is scaled by `scale`.
+	void setTile(bool tile, float64 scale = 1.);
 
 	void toggleSelected(
 		bool selected,
@@ -231,6 +234,7 @@ private:
 
 	void paint(QPainter &p, float64 craftProgress = 0.);
 	void paintBackground(QPainter &p, const QImage &background);
+	void paintTileBackground(QPainter &p, const QImage &background);
 	void cacheUniqueBackground(
 		not_null<Data::UniqueGift*> unique,
 		int width,
@@ -274,6 +278,9 @@ private:
 	Ui::Text::String _byStars;
 	std::shared_ptr<Ui::DynamicImage> _userpic;
 	QImage _uniqueBackgroundCache;
+	QImage _tileBackgroundCache;
+	float64 _tileScale = 1.;
+	bool _tile = false;
 	QImage _tonIcon;
 	std::unique_ptr<Ui::Text::CustomEmoji> _uniquePatternEmoji;
 	base::flat_map<float64, QImage> _uniquePatternCache;

@@ -2423,6 +2423,12 @@ tondns.addressDomains#ad91fd30 domains:Vector<tondns.AddressDomain> = tondns.Add
 tondns.listing#286f28d8 name:string seller_id:long price:long item_address:string listed_at:int = tondns.Listing;
 tondns.listings#29ecf728 count:int listings:Vector<tondns.Listing> users:Vector<User> min_price:long max_price:long fee_percent:int = tondns.Listings;
 tondns.domainCheckEx#dddc5e96 flags:# available:flags.0?true name:string price:long listing:flags.1?tondns.Listing users:Vector<User> = tondns.DomainCheckEx;
+// StaticGram profile gift tiles (gramsrv third_party/td/_schema sggifts.tl).
+sggifts.tile#43eb4d44 flags:# msg_id:flags.0?int saved_id:flags.1?long = sggifts.Tile;
+sggifts.tileLayout#2b5480f8 wide:Vector<sggifts.Tile> = sggifts.TileLayout;
+sggifts.tileSize#e654f510 flags:# msg_id:flags.0?int saved_id:flags.1?long w:int h:int = sggifts.TileSize;
+sggifts.tileSizes#4ebacdd8 tiles:Vector<sggifts.TileSize> = sggifts.TileSizes;
+sggifts.inputTileSize#08b711b1 stargift:InputSavedStarGift w:int h:int = sggifts.InputTileSize;
 
 ---functions---
 
@@ -3345,6 +3351,10 @@ tondns.cancelSale#a4cdd903 name:string = Bool;
 tondns.buyListed#c2f511da name:string expected_price:long request_key:string = tondns.BuyResult;
 tondns.getListings#b4961c29 offset:int limit:int sort:string = tondns.Listings;
 tondns.getMyListings#ecf0d678 = tondns.Listings;
+sggifts.getTileLayout#b77a5273 peer:InputPeer = sggifts.TileLayout;
+sggifts.saveTileLayout#b0824974 peer:InputPeer wide:Vector<InputSavedStarGift> = Bool;
+sggifts.getTileSizes#347dacd5 peer:InputPeer = sggifts.TileSizes;
+sggifts.saveTileSizes#fc50fd2f peer:InputPeer tiles:Vector<sggifts.InputTileSize> = Bool;
 
 // StaticGram: gramsrv speaks Layer 233 (+ private gramwallet/sgcard/tondns).
 // LAYER 233

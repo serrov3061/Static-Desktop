@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/format_song_document_name.h"
 #include "ui/rect.h"
 #include "staticgram/sg_money.h"
+#include "staticgram/sg_money_api.h"
 
 #include "styles/style_info.h"
 #include "styles/style_info_profile_top_bar.h"
@@ -49,20 +50,33 @@ PillsRow::PillsRow(
 	not_null<UserData*> user,
 	rpl::producer<std::optional<QColor>> edgeColor,
 	Fn<void()> showSavedMusic,
-	bool underButtons)
+	bool underButtons,
+	bool withMusic)
 : _parent(parent)
 , _balance(std::make_unique<BalancePill>(
 	parent,
 	user,
-	rpl::duplicate(edgeColor)))
+	rpl::duplicate(edgeColor),
+	StaticGram::Money::Kind::Gram))
+, _stars(std::make_unique<BalancePill>(
+	parent,
+	user,
+	rpl::duplicate(edgeColor),
+	StaticGram::Money::Kind::Stars))
 , _music(std::make_unique<MusicButton>(parent)) {
 	const auto balance = _balance.get();
-	balance->setClickedCallback([=] {
-		if (balance->actionable()) {
-			// StaticGram: our sgcard sheet, not the upstream wallet.
-			StaticGram::Money::ShowCardSheet(controller, user);
-		}
-	});
+	const auto stars = _stars.get();
+	for (const auto pill : { balance, stars }) {
+		pill->setClickedCallback([=] {
+			if (pill->actionable()) {
+				// StaticGram: our sgcard sheet, not the upstream wallet.
+				StaticGram::Money::ShowCardSheet(
+					controller,
+					user,
+					pill->kind());
+			}
+		});
+	}
 	const auto music = _music.get();
 	music->setClickedCallback([=] {
 		if (music->actionable() && showSavedMusic) {
@@ -76,8 +90,11 @@ PillsRow::PillsRow(
 		music->setOverrideBg(color);
 	}, _lifetime);
 
-	ProfileMusicValue(
-		user
+	// StaticGram: the profile shows its music as a plate under the
+	// buttons (StaticGram::CreateProfileMusicPlate), not as a pill.
+	(withMusic
+		? ProfileMusicValue(user)
+		: rpl::single<DocumentData*>(nullptr)
 	) | rpl::on_next([=](DocumentData *document) {
 		if (document) {
 			music->updateData({ Ui::Text::FormatSongNameFor(document) });
@@ -91,9 +108,10 @@ PillsRow::PillsRow(
 	if (underButtons) {
 		_reserve = rpl::combine(
 			balance->shownValue(),
+			stars->shownValue(),
 			music->shownValue()
-		) | rpl::map([](bool hasBalance, bool hasMusic) {
-			return (hasBalance || hasMusic)
+		) | rpl::map([](bool hasBalance, bool hasStars, bool hasMusic) {
+			return (hasBalance || hasStars || hasMusic)
 				? st::infoProfileTopBarPillsReserve
 				: 0;
 		});
@@ -102,6 +120,8 @@ PillsRow::PillsRow(
 	rpl::merge(
 		balance->naturalWidthValue() | rpl::to_empty,
 		balance->shownValue() | rpl::to_empty,
+		stars->naturalWidthValue() | rpl::to_empty,
+		stars->shownValue() | rpl::to_empty,
 		music->naturalWidthValue() | rpl::to_empty,
 		music->shownValue() | rpl::to_empty
 	) | rpl::on_next([=] {
@@ -121,12 +141,14 @@ void PillsRow::place(int top, float64 progress) {
 		0.,
 		1.);
 	_balance->setOpacity(opacity);
+	_stars->setOpacity(opacity);
 	_music->setOpacity(opacity);
 	_top = top;
 	if (_outerWidth != _parent->width()) {
 		layout();
 	} else {
 		_balance->move(_balance->x(), _top);
+		_stars->move(_stars->x(), _top);
 		_music->move(_music->x(), _top);
 	}
 }
@@ -143,31 +165,51 @@ void PillsRow::layout() {
 		return;
 	}
 	const auto hasBalance = !_balance->isHidden();
+	const auto hasStars = !_stars->isHidden();
 	const auto hasMusic = !_music->isHidden();
-	const auto gap = (hasBalance && hasMusic)
-		? st::infoProfileTopBarPillsGap
-		: 0;
-	auto balanceWidth = 0;
-	if (hasBalance) {
-		const auto chrome = hasMusic ? _music->minimumWidth() : 0;
-		_balance->resizeToNaturalWidth(
-			std::max(available - gap - chrome, 0));
-		const auto fitted = _balance->fittedWidth();
-		if (fitted < _balance->width()) {
-			_balance->resizeToWidth(fitted);
+	const auto skip = st::infoProfileTopBarPillsGap;
+	const auto count = (hasBalance ? 1 : 0)
+		+ (hasStars ? 1 : 0)
+		+ (hasMusic ? 1 : 0);
+	const auto gaps = std::max(count - 1, 0) * skip;
+	const auto chrome = hasMusic ? _music->minimumWidth() : 0;
+	// GRAM and Stars split the room the music chrome leaves.
+	auto balancesLeft = std::max(available - gaps - chrome, 0);
+	const auto fit = [&](not_null<BalancePill*> pill, int limit) {
+		pill->resizeToNaturalWidth(std::max(limit, 0));
+		const auto fitted = pill->fittedWidth();
+		if (fitted < pill->width()) {
+			pill->resizeToWidth(fitted);
 		}
-		balanceWidth = _balance->width();
+		return pill->width();
+	};
+	auto balanceWidth = 0;
+	auto starsWidth = 0;
+	if (hasBalance && hasStars) {
+		starsWidth = fit(_stars.get(), balancesLeft / 2);
+		balanceWidth = fit(_balance.get(), balancesLeft - starsWidth);
+	} else if (hasBalance) {
+		balanceWidth = fit(_balance.get(), balancesLeft);
+	} else if (hasStars) {
+		starsWidth = fit(_stars.get(), balancesLeft);
 	}
 	auto musicWidth = 0;
 	if (hasMusic) {
 		_music->resizeToNaturalWidth(
-			std::max(available - gap - balanceWidth, 0));
+			std::max(available - gaps - balanceWidth - starsWidth, 0));
 		musicWidth = _music->width();
 	}
-	const auto left = padding.left()
-		+ (available - musicWidth - gap - balanceWidth) / 2;
+	const auto total = musicWidth + balanceWidth + starsWidth + gaps;
+	auto left = padding.left() + (available - total) / 2;
 	_music->move(left, _top);
-	_balance->move(left + musicWidth + gap, _top);
+	if (hasMusic) {
+		left += musicWidth + skip;
+	}
+	_balance->move(left, _top);
+	if (hasBalance) {
+		left += balanceWidth + skip;
+	}
+	_stars->move(left, _top);
 }
 
 void TopBar::setupPills(
@@ -187,7 +229,8 @@ void TopBar::setupPills(
 		user,
 		_edgeColor.value(),
 		std::move(showSavedMusic),
-		_hasActions);
+		_hasActions,
+		(_source != Source::Profile));
 	_pills->reserveValue(
 	) | rpl::on_next([=](int reserve) {
 		applyPillsReserve(reserve);

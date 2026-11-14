@@ -44,6 +44,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 #include "window/window_session_controller.h"
 #include "settings/settings_credits_graphics.h"
+#include "staticgram/sg_gift_tiles.h"
+#include "ui/painter.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h" // boxRadius
 #include "styles/style_media_player.h" // mediaPlayerMenuCheck
@@ -249,6 +251,22 @@ private:
 
 	int resizeGetHeight(int width) override;
 
+	// StaticGram bento tiles of the profile Gifts grid (sggifts.*).
+	[[nodiscard]] bool tilesWanted() const;
+	[[nodiscard]] bool tilesActive() const;
+	[[nodiscard]] StaticGram::GiftTiles::Size tileSize(int index) const;
+	void layoutTiles();
+	[[nodiscard]] int giftsTop() const;
+	[[nodiscard]] int giftsLeft() const;
+	[[nodiscard]] QRect tileRect(int index) const;
+	[[nodiscard]] QRect tileHandle(int index) const;
+	[[nodiscard]] int tileFromLocal(QPoint point) const;
+	void validateTileButtons();
+	void setTileSize(int index, StaticGram::GiftTiles::Size size);
+	void startTilesEdit();
+	void finishTilesEdit(bool save);
+	void paintTileHandles(QPainter &p, QRect clip);
+
 	[[nodiscard]] auto pinnedSavedGifts()
 		-> Fn<std::vector<Data::CreditsHistoryEntry>()>;
 
@@ -302,6 +320,20 @@ private:
 
 	Ui::Animations::Basic _scrollAnimation;
 	base::unique_qptr<Ui::PopupMenu> _menu;
+
+	StaticGram::GiftTiles::Sizes _tileSizes;
+	StaticGram::GiftTiles::Sizes _tileSizesSaved;
+	std::vector<QRect> _tileCells; // Per list index, in grid cells.
+	int _tileRows = 0;
+	bool _tilesEditing = false;
+	bool _tilesSaving = false;
+	struct TileResize {
+		int index = -1;
+		QPoint start;
+		QSize startSize;
+	};
+	TileResize _tileResize;
+	std::unique_ptr<Ui::RpWidget> _tilesOverlay;
 
 protected:
 	void focusOutEvent(QFocusEvent *e) override;
@@ -368,6 +400,17 @@ InnerWidget::InnerWidget(
 	}
 
 	loadCollections();
+
+	if (!_addingToCollectionId) {
+		_tileSizes = StaticGram::GiftTiles::Cached(_peer);
+		StaticGram::GiftTiles::Load(_peer, crl::guard(this, [=](
+				const StaticGram::GiftTiles::Sizes &sizes) {
+			if (!_tilesEditing) {
+				_tileSizes = sizes;
+				refreshButtons();
+			}
+		}));
+	}
 
 	_window->session().data().giftsUpdates(
 	) | rpl::on_next([=](const Data::GiftsUpdate &update) {
@@ -831,6 +874,9 @@ std::unique_ptr<GiftButton> InnerWidget::createGiftButton() {
 void InnerWidget::validateButtons() {
 	if (!_perRow) {
 		return;
+	} else if (tilesActive()) {
+		validateTileButtons();
+		return;
 	}
 	const auto padding = st::giftBoxPadding;
 	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
@@ -912,6 +958,7 @@ void InnerWidget::validateButtons() {
 				anim::type::instant);
 		}
 		view.button->setDescriptor(descriptor, _mode);
+		view.button->setTile(false);
 		return true;
 	};
 	for (auto j = fromRow; j != tillRow; ++j) {
@@ -1746,14 +1793,309 @@ void InnerWidget::collectionRemoved(int id) {
 	}
 }
 
+bool InnerWidget::tilesWanted() const {
+	if (_addingToCollectionId || _descriptor.current().collectionId) {
+		return false;
+	} else if (_tilesEditing) {
+		return true;
+	}
+	for (const auto &[key, size] : _tileSizes) {
+		if (!size.single()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool InnerWidget::tilesActive() const {
+	return (_perRow >= 2) && tilesWanted();
+}
+
+StaticGram::GiftTiles::Size InnerWidget::tileSize(int index) const {
+	if (index < 0 || index >= int(_list->size())) {
+		return {};
+	}
+	const auto key = StaticGram::GiftTiles::Key(
+		(*_list)[index].gift.manageId);
+	const auto i = _tileSizes.find(key);
+	return (i != end(_tileSizes)) ? i->second : StaticGram::GiftTiles::Size();
+}
+
+void InnerWidget::layoutTiles() {
+	// Android GiftBentoLayoutManager: first-fit dense packing of w x h
+	// tiles on the grid, in the profile order.
+	const auto count = int(_list->size());
+	const auto columns = _perRow;
+	auto taken = std::vector<std::vector<bool>>();
+	const auto ensureRows = [&](int rows) {
+		while (int(taken.size()) < rows) {
+			taken.emplace_back(columns, false);
+		}
+	};
+	const auto fits = [&](int row, int column, int w, int h) {
+		ensureRows(row + h);
+		for (auto y = row; y != row + h; ++y) {
+			for (auto x = column; x != column + w; ++x) {
+				if (taken[y][x]) {
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+	_tileCells.resize(count);
+	_tileRows = 0;
+	auto firstFree = 0;
+	for (auto i = 0; i != count; ++i) {
+		const auto size = tileSize(i);
+		const auto w = std::min(size.w, columns);
+		const auto h = size.h;
+		while (firstFree < int(taken.size())
+			&& ranges::all_of(taken[firstFree], [](bool v) { return v; })) {
+			++firstFree;
+		}
+		for (auto row = firstFree; ; ++row) {
+			auto placed = false;
+			for (auto column = 0; column + w <= columns; ++column) {
+				if (fits(row, column, w, h)) {
+					for (auto y = row; y != row + h; ++y) {
+						for (auto x = column; x != column + w; ++x) {
+							taken[y][x] = true;
+						}
+					}
+					_tileCells[i] = QRect(column, row, w, h);
+					_tileRows = std::max(_tileRows, row + h);
+					placed = true;
+					break;
+				}
+			}
+			if (placed) {
+				break;
+			}
+		}
+	}
+}
+
+int InnerWidget::giftsTop() const {
+	const auto padding = st::giftBoxPadding;
+	return (_collectionsTabs && !_collectionsTabs->isHidden())
+		? (padding.top() + _collectionsTabs->height() + padding.top())
+		: padding.bottom();
+}
+
+int InnerWidget::giftsLeft() const {
+	const auto padding = st::giftBoxPadding;
+	const auto available = width() - padding.left() - padding.right();
+	const auto skipw = st::giftBoxGiftSkip.x();
+	const auto fullw = _perRow * (_single.width() + skipw) - skipw;
+	return padding.left() + (available - fullw) / 2;
+}
+
+QRect InnerWidget::tileRect(int index) const {
+	if (index < 0 || index >= int(_tileCells.size())) {
+		return QRect();
+	}
+	const auto &cell = _tileCells[index];
+	const auto skipw = st::giftBoxGiftSkip.x();
+	const auto skiph = st::giftBoxGiftSkip.y();
+	return QRect(
+		giftsLeft() + cell.x() * (_single.width() + skipw),
+		giftsTop() + cell.y() * (_single.height() + skiph),
+		cell.width() * (_single.width() + skipw) - skipw,
+		cell.height() * (_single.height() + skiph) - skiph);
+}
+
+QRect InnerWidget::tileHandle(int index) const {
+	const auto rect = tileRect(index);
+	if (rect.isEmpty()) {
+		return QRect();
+	}
+	const auto size = st::giftBoxGiftSkip.x() * 2;
+	const auto inset = st::giftBoxGiftSkip.x() / 2 + 1;
+	return QRect(
+		rect.x() + rect.width() - inset - size,
+		rect.y() + rect.height() - inset - size,
+		size,
+		size);
+}
+
+int InnerWidget::tileFromLocal(QPoint point) const {
+	for (auto i = 0, count = int(_tileCells.size()); i != count; ++i) {
+		if (tileRect(i).contains(point)) {
+			return (i < int(_list->size())) ? i : -1;
+		}
+	}
+	return -1;
+}
+
+void InnerWidget::validateTileButtons() {
+	const auto preload = kPreloadButtonRows
+		* (_single.height() + st::giftBoxGiftSkip.y());
+	const auto from = _visibleFrom - preload;
+	const auto till = _visibleTill + preload;
+	const auto count = std::min(int(_list->size()), int(_tileCells.size()));
+	auto indices = std::vector<int>();
+	for (auto i = 0; i != count; ++i) {
+		const auto rect = tileRect(i);
+		if (rect.y() + rect.height() > from && rect.y() < till) {
+			indices.push_back(i);
+		}
+	}
+	auto ids = base::flat_set<uint64>();
+	for (const auto index : indices) {
+		ids.emplace((*_list)[index].gift.info.id);
+	}
+	auto views = std::vector<View>();
+	views.reserve(indices.size());
+	for (const auto index : indices) {
+		const auto &entry = (*_list)[index];
+		const auto giftId = entry.gift.info.id;
+		const auto already = ranges::find(_views, giftId, &View::giftId);
+		if (already != end(_views) && already->button) {
+			views.push_back(base::take(*already));
+		} else {
+			const auto unused = ranges::find_if(_views, [&](const View &v) {
+				return v.button && !ids.contains(v.giftId);
+			});
+			if (unused != end(_views)) {
+				views.push_back(base::take(*unused));
+			} else {
+				views.push_back({ .button = createGiftButton() });
+			}
+		}
+		auto &view = views.back();
+		view.index = index;
+		view.manageId = entry.gift.manageId;
+		view.giftId = giftId;
+		view.button->setDescriptor(entry.descriptor, _mode);
+		const auto cell = _tileCells[index];
+		view.button->setTile(
+			true,
+			std::min(cell.width(), cell.height()));
+		view.button->setGeometry(tileRect(index), _delegate.buttonExtend());
+	}
+	_draggedView = nullptr;
+	std::swap(_views, views);
+
+	if (_tilesEditing) {
+		if (!_tilesOverlay) {
+			_tilesOverlay = std::make_unique<Ui::RpWidget>(this);
+			const auto raw = _tilesOverlay.get();
+			raw->setAttribute(Qt::WA_TransparentForMouseEvents);
+			raw->paintRequest() | rpl::on_next([=](QRect clip) {
+				auto p = QPainter(raw);
+				paintTileHandles(p, clip);
+			}, raw->lifetime());
+			raw->show();
+		}
+		_tilesOverlay->setGeometry(rect());
+		_tilesOverlay->raise();
+		_tilesOverlay->update();
+	} else {
+		_tilesOverlay = nullptr;
+	}
+}
+
+void InnerWidget::paintTileHandles(QPainter &p, QRect clip) {
+	auto hq = PainterHighQualityEnabler(p);
+	const auto stroke = style::ConvertScaleExact(2.);
+	for (const auto &view : _views) {
+		const auto handle = QRectF(tileHandle(view.index));
+		if (handle.isEmpty() || !clip.intersects(handle.toAlignedRect())) {
+			continue;
+		}
+		p.setPen(QPen(st::windowBg->c, stroke));
+		p.setBrush(st::activeButtonBg);
+		p.drawEllipse(handle);
+		// A small diagonal «resize» mark.
+		const auto c = handle.center();
+		const auto d = handle.width() / 5.;
+		p.setPen(QPen(st::activeButtonFg->c, stroke * 0.75));
+		p.drawLine(c + QPointF(-d, d), c + QPointF(d, -d));
+	}
+}
+
+void InnerWidget::setTileSize(
+		int index,
+		StaticGram::GiftTiles::Size size) {
+	if (index < 0 || index >= int(_list->size())) {
+		return;
+	}
+	const auto key = StaticGram::GiftTiles::Key(
+		(*_list)[index].gift.manageId);
+	if (!key) {
+		return;
+	}
+	if (size.single()) {
+		_tileSizes.remove(key);
+	} else {
+		if (!_tileSizes.contains(key)
+			&& int(_tileSizes.size()) >= StaticGram::GiftTiles::kMaxTiles) {
+			_window->showToast(tr::lng_sg_gift_layout_limit(
+				tr::now,
+				lt_limit,
+				QString::number(StaticGram::GiftTiles::kMaxTiles)));
+			return;
+		}
+		_tileSizes[key] = size;
+	}
+	refreshButtons();
+}
+
+void InnerWidget::startTilesEdit() {
+	if (_tilesEditing) {
+		return;
+	}
+	if (_dragging.index >= 0) {
+		cancelDragging();
+	}
+	_tilesEditing = true;
+	_tileSizesSaved = _tileSizes;
+	_window->showToast(tr::lng_sg_gift_layout_hint(tr::now));
+	refreshButtons();
+}
+
+void InnerWidget::finishTilesEdit(bool save) {
+	if (!_tilesEditing || _tilesSaving) {
+		return;
+	}
+	const auto done = [=] {
+		_tilesEditing = false;
+		_tileResize = TileResize();
+		_tilesOverlay = nullptr;
+		refreshButtons();
+	};
+	if (!save) {
+		_tileSizes = base::take(_tileSizesSaved);
+		done();
+		return;
+	}
+	_tilesSaving = true;
+	StaticGram::GiftTiles::Save(_peer, _tileSizes, crl::guard(this, [=](
+			QString error) {
+		_tilesSaving = false;
+		if (error.isEmpty()) {
+			_tileSizes = StaticGram::GiftTiles::Cached(_peer);
+			_tileSizesSaved.clear();
+			_window->showToast(tr::lng_sg_gift_layout_saved(tr::now));
+			done();
+		} else {
+			_window->showToast(error);
+		}
+	}));
+}
+
 int InnerWidget::resizeGetHeight(int width) {
 	const auto padding = st::giftBoxPadding;
 	const auto count = int(_list->size());
 	const auto available = width - padding.left() - padding.right();
 	const auto skipw = st::giftBoxGiftSkip.x();
-	_perRow = std::min(
-		(available + skipw) / (_singleMin.width() + skipw),
-		std::max(count, 1));
+	const auto columns = (available + skipw) / (_singleMin.width() + skipw);
+	_perRow = std::min(columns, std::max(count, 1));
+	if (tilesWanted() && columns >= 2) {
+		// StaticGram: wide tiles need the full grid.
+		_perRow = columns;
+	}
 	if (!_perRow) {
 		return 0;
 	}
@@ -1774,7 +2116,15 @@ int InnerWidget::resizeGetHeight(int width) {
 	const auto singleh = _singleMin.height();
 
 	_single = QSize(singlew, singleh);
-	const auto rows = (count + _perRow - 1) / _perRow;
+	if (tilesActive()) {
+		layoutTiles();
+	} else {
+		_tileCells.clear();
+		_tileRows = 0;
+	}
+	const auto rows = tilesActive()
+		? _tileRows
+		: ((count + _perRow - 1) / _perRow);
 	const auto rowsPerCount = rows
 		? rows
 		: ((std::min(_entries->total, kPerPage) + _perRow - 1) / _perRow);
@@ -1846,6 +2196,21 @@ void InnerWidget::fillMenu(const Ui::Menu::MenuCallback &addAction) {
 						crl::guard(this, added)));
 				}
 			}, &st::menuIconAddToFolder);
+		}
+		if (canManage && !_addingToCollectionId) {
+			// StaticGram: bento tiles (Android «Edit layout»).
+			if (!_tilesEditing) {
+				addAction(tr::lng_sg_gift_layout_edit(tr::now), [=] {
+					startTilesEdit();
+				}, &st::menuIconEdit);
+			} else {
+				addAction(tr::lng_sg_gift_layout_save(tr::now), [=] {
+					finishTilesEdit(true);
+				}, &st::menuIconSelect);
+				addAction(tr::lng_cancel(tr::now), [=] {
+					finishTilesEdit(false);
+				}, &st::menuIconCancel);
+			}
 		}
 	} else if (canManage) {
 		addAction(tr::lng_gift_collection_add_button(tr::now), [=] {
@@ -1989,8 +2354,23 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 		return;
 	}
 	_pressedIndex = index;
+	if (_tilesEditing) {
+		const auto local = mapFromGlobal(e->globalPos());
+		const auto handle = tileHandle(index);
+		const auto slack = st::giftBoxGiftSkip.x();
+		if (handle.marginsAdded({ slack, slack, slack, slack }).contains(
+				local)) {
+			_tileResize.index = index;
+			_tileResize.start = e->globalPos();
+			_tileResize.startSize = tileRect(index).size();
+			grabMouse();
+			e->accept();
+		}
+		return;
+	}
 	const auto collectionId = _descriptor.current().collectionId;
-	const auto canDrag = !_addingToCollectionId
+	const auto canDrag = !tilesActive()
+		&& !_addingToCollectionId
 		&& _peer->canManageGifts()
 		&& _list->size() > 1
 		&& (collectionId
@@ -2012,6 +2392,31 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 }
 
 void InnerWidget::mouseMoveEvent(QMouseEvent *e) {
+	if (_tileResize.index >= 0) {
+		// Android GiftBentoResizer: the size snaps at half a cell.
+		const auto index = _tileResize.index;
+		const auto delta = e->globalPos() - _tileResize.start;
+		const auto skipw = st::giftBoxGiftSkip.x();
+		const auto skiph = st::giftBoxGiftSkip.y();
+		const auto cellw = _single.width() + skipw;
+		const auto cellh = _single.height() + skiph;
+		const auto neww = _tileResize.startSize.width() + delta.x() + skipw;
+		const auto newh = _tileResize.startSize.height() + delta.y() + skiph;
+		const auto w = std::clamp(
+			int((neww + cellw / 2) / cellw),
+			1,
+			std::min(StaticGram::GiftTiles::kMaxW, _perRow));
+		const auto h = std::clamp(
+			int((newh + cellh / 2) / cellh),
+			1,
+			StaticGram::GiftTiles::kMaxH);
+		const auto size = StaticGram::GiftTiles::Normalized(w, h);
+		if (index < int(_list->size()) && !(tileSize(index) == size)) {
+			setTileSize(index, size);
+		}
+		e->accept();
+		return;
+	}
 	if (_dragging.index < 0) {
 		updateSelected();
 		return;
@@ -2181,6 +2586,23 @@ void InnerWidget::mouseReleaseEvent(QMouseEvent *e) {
 	if (mouseGrabber() == this) {
 		releaseMouse();
 	}
+	if (base::take(_tileResize).index >= 0) {
+		return;
+	} else if (_tilesEditing) {
+		// A tap cycles 1x1 -> 2x1 -> 2x2 -> 1x1.
+		const auto index = giftFromGlobalPos(e->globalPos());
+		if (pressedIndex >= 0 && index == pressedIndex) {
+			using StaticGram::GiftTiles::Size;
+			const auto now = tileSize(index);
+			const auto next = now.single()
+				? Size{ 2, 1 }
+				: (now == Size{ 2, 1 })
+				? Size{ 2, 2 }
+				: Size{ 1, 1 };
+			setTileSize(index, next);
+		}
+		return;
+	}
 
 	if (_dragging.enabled && _dragging.index >= 0 && !isDraggedAnimating()) {
 		const auto fromPos = mapFromGlobal(e->globalPos()) - _dragging.point;
@@ -2282,6 +2704,8 @@ int InnerWidget::giftFromGlobalPos(const QPoint &p) const {
 	const auto l = mapFromGlobal(p);
 	if (!_perRow) {
 		return -1;
+	} else if (tilesActive()) {
+		return tileFromLocal(l);
 	}
 	const auto padding = st::giftBoxPadding;
 	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
@@ -2307,6 +2731,10 @@ int InnerWidget::giftFromGlobalPos(const QPoint &p) const {
 QPoint InnerWidget::posFromIndex(int index) const {
 	if (!_perRow) {
 		return {};
+	} else if (tilesActive()) {
+		const auto extend = _delegate.buttonExtend();
+		return tileRect(index).topLeft()
+			- QPoint(extend.left(), extend.top());
 	}
 	const auto padding = st::giftBoxPadding;
 	const auto vskip = (_collectionsTabs && !_collectionsTabs->isHidden())
