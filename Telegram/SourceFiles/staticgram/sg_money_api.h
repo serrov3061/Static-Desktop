@@ -77,8 +77,11 @@ void RefreshBalances(not_null<Main::Session*> session);
 
 // "94.4K", "1,234.5" (GRAM in nanoton) or "1 234" (Stars).
 [[nodiscard]] QString FormatGram(int64 nanos);
+// Stars: the full number below 1 000 000, abbreviated above (Android
+// SGAmounts.stars): "1,5 млн".
 [[nodiscard]] QString FormatStars(int64 stars);
 [[nodiscard]] QString FormatAmount(Kind kind, int64 amount);
+
 // "GRAM 1780 2432 00" / "STAR 1780 2432 00".
 [[nodiscard]] QString CardNumber(Kind kind, not_null<UserData*> user);
 

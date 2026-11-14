@@ -286,29 +286,47 @@ void RequestRates() {
 	});
 }
 
-[[nodiscard]] QString Compact(int64 units) {
-	static const auto kUnits = std::array<const char*, 6>{
-		"", "K", "M", "B", "T", "Q"
-	};
-	const auto negative = (units < 0);
-	auto value = negative ? -units : units;
-	auto base = int64(1);
-	auto unit = 0;
-	while (value / base >= 1000 && unit + 1 < int(kUnits.size())) {
-		base *= 1000;
-		++unit;
+// Android SGAmounts.compact: 2 decimals truncated (never above the real
+// value), trailing zeros trimmed, a space and the unit: "1,5 млн", "2,3 млрд".
+[[nodiscard]] QString CompactUnit(int groups) {
+	switch (groups) {
+	case 1: return u"K"_q;
+	case 2: return tr::lng_sg_num_million(tr::now);
+	case 3: return tr::lng_sg_num_billion(tr::now);
+	case 4: return tr::lng_sg_num_trillion(tr::now);
+	case 5: return tr::lng_sg_num_quadrillion(tr::now);
+	case 6: return tr::lng_sg_num_quintillion(tr::now);
 	}
-	const auto whole = value / base;
+	return QString();
+}
+
+[[nodiscard]] QString Compact(int64 units) {
+	const auto negative = (units < 0);
+	const auto value = negative ? -units : units;
+	auto divider = int64(1);
+	auto groups = 0;
+	while (value / divider >= 1000 && groups < 6) {
+		divider *= 1000;
+		++groups;
+	}
+	if (!groups) {
+		return QString::number(units);
+	}
+	// divider / 100 is exact for groups >= 1, so no overflow here.
+	const auto whole = value / divider;
+	const auto hundredths = (value % divider) / (divider / 100);
 	auto result = QString::number(whole);
-	if (whole < 100 && base > 1) {
-		const auto decimal = ((value % base) * 10) / base;
-		if (decimal > 0) {
-			result += '.' + QString::number(decimal);
+	if (hundredths) {
+		auto fraction = QString::number(hundredths).rightJustified(2, QChar('0'));
+		while (fraction.endsWith(QChar('0'))) {
+			fraction.chop(1);
 		}
+		result += Ui::TonAmountSeparator() + fraction;
 	}
 	return (negative ? u"-"_q : QString())
 		+ result
-		+ QString::fromLatin1(kUnits[unit]);
+		+ ' '
+		+ CompactUnit(groups);
 }
 
 [[nodiscard]] float64 UsdPerUnit(

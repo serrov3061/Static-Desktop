@@ -557,9 +557,13 @@ void Credits::setupContent() {
 				(isCurrency
 					? controller()->session().credits().tonBalanceValue()
 					: controller()->session().credits().balanceValue()
-				) | rpl::map(
-					Lang::FormatCreditsAmountDecimal
-				) | rpl::map(tr::bold),
+				) | rpl::map([=](CreditsAmount amount) {
+					// StaticGram: big Stars balances abbreviated (Android
+					// SGAmounts.stars), GRAM stays exact.
+					return isCurrency
+						? Lang::FormatCreditsAmountDecimal(amount)
+						: StaticGram::Money::FormatStars(amount.whole());
+				}) | rpl::map(tr::bold),
 				tr::marked),
 			textSt,
 			st::defaultPopupMenu,

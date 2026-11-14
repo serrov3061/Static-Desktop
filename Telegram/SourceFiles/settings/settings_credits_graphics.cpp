@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/settings_credits_graphics.h"
+#include "staticgram/sg_money_api.h"
 #include "ui/effects/ministar_particles.h"
 #include "ui/effects/animations.h"
 #include "mokagram/plugins/mokagram_plugin_install.h"
@@ -946,7 +947,7 @@ not_null<Ui::RpWidget*> AddBalanceWidget(
 			text.append(
 				helper.paletteDependent(Ui::Earn::IconCreditsEmoji())
 			).append(' ').append(
-				Lang::FormatCreditsAmountToShort(value).string);
+				StaticGram::Money::FormatStars(value.whole()));
 		}
 		state->count.setMarkedText(
 			st::semiboldTextStyle,

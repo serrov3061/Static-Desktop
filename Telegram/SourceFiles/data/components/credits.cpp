@@ -14,6 +14,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 
+#include <limits>
+
 namespace Data {
 namespace {
 
@@ -254,9 +256,24 @@ CreditsAmount CreditsAmountFromTL(const MTPStarsAmount *amount) {
 }
 
 MTPStarsAmount StarsAmountToTL(CreditsAmount amount) {
-	return amount.ton() ? MTP_starsTonAmount(
-		MTP_long(amount.whole() * uint64(1'000'000'000) + amount.nano())
-	) : MTP_starsAmount(MTP_long(amount.whole()), MTP_int(amount.nano()));
+	if (!amount.ton()) {
+		return MTP_starsAmount(
+			MTP_long(amount.whole()),
+			MTP_int(amount.nano()));
+	}
+	// StaticGram: saturate the nanos instead of wrapping around (a wrapped
+	// huge balance turned negative), like Android AmountUtils.ofWhole.
+	constexpr auto kNano = int64(1'000'000'000);
+	const auto whole = int64(amount.whole());
+	const auto nano = amount.nano();
+	const auto max = std::numeric_limits<int64>::max();
+	const auto min = std::numeric_limits<int64>::min();
+	if (whole > (max - nano) / kNano) {
+		return MTP_starsTonAmount(MTP_long(max));
+	} else if (whole < (min - nano) / kNano) {
+		return MTP_starsTonAmount(MTP_long(min));
+	}
+	return MTP_starsTonAmount(MTP_long(whole * kNano + nano));
 }
 
 QString PrepareCreditsAmountText(CreditsAmount amount) {

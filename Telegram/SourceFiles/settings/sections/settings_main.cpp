@@ -633,7 +633,7 @@ void BuildPremiumSection(SectionBuilder &builder) {
 		.label = session->credits().balanceValue(
 		) | rpl::map([](CreditsAmount c) {
 			return c
-				? Lang::FormatCreditsAmountToShort(c).string
+				? StaticGram::Money::FormatStars(c.whole())
 				: QString();
 		}),
 		.credits = true,
