@@ -300,7 +300,7 @@ constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_dns_title", "Домены .ton" },
 	{ "lng_sg_dns_intro", "Короткое имя вместо адреса кошелька. Оплата один раз в GRAM, домен ваш навсегда." },
 	{ "lng_sg_dns_search_hint", "имя" },
-	{ "lng_sg_dns_search_empty", "Латинские буквы, цифры и _ , до 32 символов" },
+	{ "lng_sg_dns_search_empty", "Латинские буквы и цифры, начиная с буквы, до 32 символов" },
 	{ "lng_sg_dns_checking", "Проверяем…" },
 	{ "lng_sg_dns_available", "Свободен" },
 	{ "lng_sg_dns_buy_for", "Купить за {amount}" },

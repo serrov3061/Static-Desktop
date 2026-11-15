@@ -9413,7 +9413,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_sg_dns_title" = ".ton domains";
 "lng_sg_dns_intro" = "A short name instead of your wallet address. Paid once in GRAM, yours forever.";
 "lng_sg_dns_search_hint" = "name";
-"lng_sg_dns_search_empty" = "Latin letters, digits and _, up to 32 characters";
+"lng_sg_dns_search_empty" = "Latin letters and digits, starting with a letter, up to 32 characters";
 "lng_sg_dns_checking" = "Checking…";
 "lng_sg_dns_available" = "Available";
 "lng_sg_dns_buy_for" = "Buy for {amount}";

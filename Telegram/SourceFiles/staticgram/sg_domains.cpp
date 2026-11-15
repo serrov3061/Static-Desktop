@@ -1792,7 +1792,10 @@ void DomainsBox(
 		auto filtered = QString();
 		for (const auto &ch : lower) {
 			const auto c = ch.unicode();
-			if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			// New names: letters and digits only, starting with a letter
+			// (owner 15.11.2026: no "_", no leading digit).
+			if ((c >= 'a' && c <= 'z')
+				|| (c >= '0' && c <= '9' && !filtered.isEmpty())) {
 				filtered += ch;
 			}
 		}
