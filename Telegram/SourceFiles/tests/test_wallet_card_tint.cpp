@@ -370,10 +370,10 @@ struct Tinted {
 	const auto close = [&](int a, int b) {
 		return std::abs(a - b) <= tolerance;
 	};
-	const auto near = close(qRed(got), qRed(expected))
+	const auto isNear = close(qRed(got), qRed(expected))
 		&& close(qGreen(got), qGreen(expected))
 		&& close(qBlue(got), qBlue(expected));
-	return near
+	return isNear
 		? QString()
 		: u"%1 is not within %2 of %3"_q.arg(
 			PixelText(got),

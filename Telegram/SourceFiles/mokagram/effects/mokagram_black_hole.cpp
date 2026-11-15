@@ -231,11 +231,11 @@ struct Run {
 	const auto flow = Flow(config, result.flowSpeed);
 	auto end = result.swallowStart;
 	for (const auto &item : items) {
-		auto far = 0.;
+		auto farthest = 0.;
 		for (const auto &p : Corners(item.rect)) {
-			far = std::max(far, flow.height(p, target, r));
+			farthest = std::max(farthest, flow.height(p, target, r));
 		}
-		end = std::max(end, result.swallowStart + flow.timeToSink(far));
+		end = std::max(end, result.swallowStart + flow.timeToSink(farthest));
 	}
 	result.swallowEnd = end;
 	return result;
@@ -984,11 +984,11 @@ void Renderer::backdropRows(
 				if (e0 >= 0. && e0 < kBloomMax) {
 					const auto index = int(e0 / kBloomMax * kBloomSteps);
 					const auto k = glow * float(Smooth(1., 1.06, ratio));
-					const auto near = bloomNear[index] * k * 255.f;
-					const auto far = bloomFar[index] * k * 255.f;
-					rr += near + far;
-					gg += near * 0.9f + far * 0.85f;
-					bb += near * 0.55f + far * 0.5f;
+					const auto bloomN = bloomNear[index] * k * 255.f;
+					const auto bloomF = bloomFar[index] * k * 255.f;
+					rr += bloomN + bloomF;
+					gg += bloomN * 0.9f + bloomF * 0.85f;
+					bb += bloomN * 0.55f + bloomF * 0.5f;
 				}
 			}
 			out[x] = Pack(255.f, rr, gg, bb);
@@ -1301,12 +1301,12 @@ void Renderer::overlayRows(
 			// Кольцо: чистая верхняя дуга текстуры вокруг всей дыры, волокна
 			// у горизонта крутятся быстрее, как орбиты.
 			const auto phi = std::atan2(qx, qy);
-			const auto near = std::exp(
+			const auto nearness = std::exp(
 				-std::max(qs - 1., 0.) / std::max(c.innerWidth, 0.01));
 			const auto spin = state.time
 				* c.ringSpin
 				* c.ringSpeed
-				* (0.6 + c.innerBoost * near);
+				* (0.6 + c.innerBoost * nearness);
 			const auto theta = Triangle(phi + spin);
 			const auto xr = std::max(qs - 1., 0.);
 			const auto rs = 1.075
