@@ -43,6 +43,7 @@
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "window/window_controller.h"
+#include "window/window_columns.h"
 #include "api/api_common.h"
 #include "apiwrap.h"
 #include "data/data_media_types.h"
@@ -6099,14 +6100,14 @@ public:
 		_resize = Ui::CreateChild<Ui::ResizeArea>(this);
 		_resize->addMoveLeftCallback([=](int globalLeft) {
 			if (const auto parent = parentWidget()) {
-				Core::App().settings().setThirdColumnWidth(
+				_controller->columns().setThirdColumnWidth(
 					parent->mapToGlobal(QPoint(parent->width(), 0)).x()
 						- globalLeft);
 			}
 		});
 		_resize->addMoveFinishedCallback([=] {
-			Core::App().settings().setThirdColumnWidth(std::clamp(
-				Core::App().settings().thirdColumnWidth(),
+			_controller->columns().setThirdColumnWidth(std::clamp(
+				_controller->columns().thirdColumnWidth(),
 				st::columnMinimalWidthThird,
 				st::columnMaximalWidthThird));
 			Core::App().saveSettingsDelayed();
@@ -6133,7 +6134,7 @@ public:
 			}
 			updateGeometryFromAnchor();
 		}, lifetime());
-		Core::App().settings().thirdColumnWidthChanges(
+		_controller->columns().thirdColumnWidthChanges(
 		) | rpl::on_next([=](int) {
 			updateGeometryFromAnchor();
 		}, lifetime());
