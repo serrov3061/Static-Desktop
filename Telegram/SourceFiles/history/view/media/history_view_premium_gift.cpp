@@ -159,6 +159,12 @@ TextWithEntities PremiumGift::subtitle() {
 					lt_user,
 					tr::bold(_parent->history()->peer->shortName()),
 					tr::rich)
+				: !_data.starsConverted
+				? tr::lng_action_gift_sent_keep_text(
+					tr::now,
+					lt_user,
+					tr::bold(_parent->history()->peer->shortName()),
+					tr::rich)
 				: tr::lng_action_gift_sent_text(
 					tr::now,
 					lt_count_decimal,

@@ -636,8 +636,10 @@ const std::vector<int> &PremiumGiftCodeOptions::availablePresets() const {
 }
 
 [[nodiscard]] int PremiumGiftCodeOptions::monthsFromPreset(int monthsIndex) {
-	Expects(monthsIndex >= 0 && monthsIndex < _availablePresets.size());
-
+	if (monthsIndex < 0
+		|| monthsIndex >= int(_optionsForOnePerson.months.size())) {
+		return 0;
+	}
 	return _optionsForOnePerson.months[monthsIndex];
 }
 

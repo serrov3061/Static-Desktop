@@ -504,7 +504,7 @@ auto GenerateGiftMedia(
 				? tr::lng_action_gift_self_about_unique(tr::now, tr::rich)
 				: (recipient->isBroadcast() && gift.info.starsToUpgrade)
 				? tr::lng_action_gift_channel_about_unique(tr::now, tr::rich)
-				: gift.info.auction()
+				: (gift.info.auction() || !gift.info.starsConverted)
 				? (recipient->isBroadcast()
 					? tr::lng_action_gift_got_gift_channel(tr::now, tr::rich)
 					: tr::lng_action_gift_got_gift_text(tr::now, tr::rich))

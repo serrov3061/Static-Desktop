@@ -430,6 +430,7 @@ constexpr auto kRussian = std::to_array<Phrase>({
 	{ "lng_sg_gift_layout_hint", "Потяните за уголок подарка или нажмите на него, чтобы изменить размер. Сохраните расположение в меню." },
 	{ "lng_sg_gift_layout_saved", "Расположение сохранено" },
 	{ "lng_sg_gift_layout_limit", "Изменить размер можно не более чем {limit} подаркам" },
+	{ "lng_action_gift_sent_keep_text", "{user} может добавить этот подарок в профиль." },
 	// stage2 end
 });
 

@@ -387,8 +387,15 @@ void CreateGiveawayBox(
 				QImage())
 		)->setAttribute(Qt::WA_TransparentForMouseEvents);
 	}
+	// StaticGram: Premium is free for everyone, so the server returns no
+	// Premium giveaway options; the Premium row is hidden in that case.
+	auto premiumRowWrap = (Ui::SlideWrap<Ui::VerticalLayout>*)nullptr;
 	if (!prepaid) {
-		const auto row = contentWrap->entity()->add(
+		premiumRowWrap = contentWrap->entity()->add(
+			object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+				contentWrap->entity(),
+				object_ptr<Ui::VerticalLayout>(contentWrap->entity())));
+		const auto row = premiumRowWrap->entity()->add(
 			object_ptr<Giveaway::GiveawayTypeRow>(
 				box,
 				GiveawayType::Random,
@@ -1547,8 +1554,22 @@ void CreateGiveawayBox(
 			state->lifetimeApi.destroy();
 			loading->toggle(false, anim::type::instant);
 			state->confirmButtonBusy = false;
+			const auto noPremium = !prepaid
+				&& state->apiOptions.availablePresets().empty();
+			if (noPremium) {
+				if (state->apiCreditsOptions.options().empty()) {
+					box->uiShow()->showToast(
+						tr::lng_attach_failed(tr::now));
+					box->closeBox();
+					return;
+				}
+				if (premiumRowWrap) {
+					premiumRowWrap->hide(anim::type::instant);
+				}
+				state->typeValue.force_assign(GiveawayType::Credits);
+			}
 			fillSliderContainer();
-			if (!prepaid) {
+			if (!prepaid && !noPremium) {
 				state->chosenMonths = state->apiOptions.monthsFromPreset(0);
 			}
 			fillCreditsTypeWrap();
