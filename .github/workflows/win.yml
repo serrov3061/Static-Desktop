@@ -146,14 +146,14 @@ jobs:
 
       - name: Save ThirdParty cache now.
         if: steps.cache-third-party.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-v3-${{ env.CACHE_KEY }}
 
       - name: Save Libraries cache now.
         if: steps.cache-libs.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ${{ env.LibrariesPath }}\*
@@ -165,7 +165,7 @@ jobs:
 
       - name: Save Qt cache now.
         if: steps.cache-qt.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
