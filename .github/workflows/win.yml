@@ -103,7 +103,7 @@ jobs:
           nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
 
       - name: Enlarge pagefile.
-        uses: al-cheb/configure-pagefile-action@v1.4
+        uses: al-cheb/configure-pagefile-action@v1.5
         with:
           minimum-size: 8GB
           maximum-size: 32GB
